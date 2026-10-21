@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2020", "module": "ESNext", "moduleResolution": "node", "jsx": "react-jsx",
+    "strict": false, "noEmit": true, "lib": ["DOM", "ES2020"], "esModuleInterop": true,
+    "skipLibCheck": true, "resolveJsonModule": true
+  },
+  "include": ["src"],
+  "exclude": ["remotion.config.ts", "node_modules"]
+}

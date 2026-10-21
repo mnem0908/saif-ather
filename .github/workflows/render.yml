@@ -1,0 +1,112 @@
+name: Render video
+run-name: render ${{ inputs.job_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:     { description: 'Job id (used to find this run)', required: true }
+      mediaUrl:   { description: 'Public URL of uploaded media',   required: false, default: '' }
+      title:      { description: 'Video title',                    required: false, default: 'SA Motion Studio' }
+      duration:   { description: 'Duration in seconds',            required: true,  default: '10' }
+      template:   { description: 'title | showcase | captions | videoedit', required: false, default: 'title' }
+      mediaType:  { description: 'video | audio | empty',          required: false, default: '' }
+      width:      { description: 'Width',                          required: false, default: '1080' }
+      height:     { description: 'Height',                         required: false, default: '1920' }
+      fps:        { description: 'FPS',                            required: false, default: '30' }
+      segments:   { description: 'Caption segments JSON',          required: false, default: '[]' }
+      chunks:     { description: 'Number of parallel machines (max 20)', required: false, default: '8' }
+
+env:
+  IN_MEDIA: ${{ inputs.mediaUrl }}
+  IN_TITLE: ${{ inputs.title }}
+  IN_TEMPLATE: ${{ inputs.template }}
+  IN_MTYPE: ${{ inputs.mediaType }}
+  IN_DUR: ${{ inputs.duration }}
+  IN_W: ${{ inputs.width }}
+  IN_H: ${{ inputs.height }}
+  IN_FPS: ${{ inputs.fps }}
+  IN_SEG: ${{ inputs.segments }}
+  IN_CHUNKS: ${{ inputs.chunks }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.p.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: p
+        run: bash scripts/plan.sh
+
+  render:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        chunk: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - name: System deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-core fonts-noto-color-emoji fonts-hosny-amiri libnss3 libgbm1 libasound2t64 || true
+          fc-cache -f
+      - run: npm install --no-audit --no-fund --legacy-peer-deps
+      - run: bash scripts/make-props.sh
+      - name: Render chunk ${{ matrix.chunk.i }} (${{ matrix.chunk.range }})
+        run: npx remotion render src/index.ts MainVideo out/chunk-${{ matrix.chunk.i }}.mp4 --props=./props.json --frames=${{ matrix.chunk.range }} --muted --gl=swangle --codec=h264 --crf=18 --timeout=180000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunk-${{ inputs.job_id }}-${{ matrix.chunk.i }}
+          path: out/chunk-${{ matrix.chunk.i }}.mp4
+          retention-days: 1
+
+  audio:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libnss3 libgbm1 libasound2t64 || true
+      - run: npm install --no-audit --no-fund --legacy-peer-deps
+      - run: bash scripts/make-props.sh
+      - run: npx remotion render src/index.ts MainVideo out/audio.aac --props=./props.json --codec=aac --gl=swangle --timeout=180000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-${{ inputs.job_id }}
+          path: out/audio.aac
+          retention-days: 1
+
+  merge:
+    needs: [plan, render, audio]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: chunk-${{ inputs.job_id }}-*
+          path: chunks
+      - uses: actions/download-artifact@v4
+        with:
+          name: audio-${{ inputs.job_id }}
+          path: audio
+      - name: Stitch (no re-encode) and add audio
+        run: |
+          ls chunks/*/chunk-*.mp4 | sed 's/.*chunk-\([0-9]*\)\.mp4/\1 &/' | sort -n | awk '{print "file \x27" $2 "\x27"}' > list.txt
+          cat list.txt
+          ffmpeg -y -v error -f concat -safe 0 -i list.txt -c copy video-only.mp4
+          mkdir -p out
+          ffmpeg -y -v error -i video-only.mp4 -i audio/audio.aac -map 0:v -map 1:a -c:v copy -c:a aac -b:a 192k -shortest out/video.mp4
+          ffprobe -v error -show_entries format=duration -of csv=p=0 out/video.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: video-${{ inputs.job_id }}
+          path: out/video.mp4
+          retention-days: 2
