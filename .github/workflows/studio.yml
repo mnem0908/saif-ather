@@ -1,5 +1,5 @@
 name: Studio
-run-name: studio ${{ inputs.handover && '(handover)' || '' }}
+run-name: studio ${{ inputs.handover == 'true' && '(handover)' || '' }}
 
 on:
   workflow_dispatch:

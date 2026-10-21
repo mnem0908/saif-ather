@@ -5,7 +5,8 @@ set -uo pipefail
 : "${GITHUB_REPOSITORY:?}"; : "${GH_TOKEN:?}"
 RUN_SECS=${SA_RUN_SECONDS:-21000}            # exit after 5h50m
 HANDOVER_SECS=${SA_HANDOVER_SECONDS:-20100}  # start the next run at 5h35m
-STUDIO_CMD=${STUDIO_CMD:-python3 SA_Motion_Studio_v10.py}
+STUDIO_CMD=${STUDIO_CMD:-python3 -u SA_Motion_Studio_v10.py}
+TRIES=${SA_STARTUP_TRIES:-450}
 REMOTE=${PUBLISH_REMOTE:-https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git}
 LOG=studio.log
 
@@ -17,7 +18,7 @@ if [ "${HANDOVER:-false}" != "true" ]; then
   if [ "${others:-0}" -gt 0 ]; then echo "Another studio run is already active; exiting."; exit 0; fi
 fi
 
-export SA_HIDE_KEY=1
+export SA_HIDE_KEY=1 PYTHONUNBUFFERED=1
 START=$(date +%s)
 : > "$LOG"
 $STUDIO_CMD >> "$LOG" 2>&1 &
@@ -27,14 +28,14 @@ TAILPID=$!
 trap 'pkill -P $PID 2>/dev/null; kill $PID $TAILPID 2>/dev/null' EXIT
 
 URL=""
-for _ in $(seq 1 450); do            # up to ~15 min for setup (npm, chrome, whisper deps)
+for _ in $(seq 1 "$TRIES"); do            # up to ~15 min for setup (npm, chrome, whisper deps)
   sleep 2
-  kill -0 $PID 2>/dev/null || { echo "::error::Studio process exited during startup"; exit 1; }
+  kill -0 $PID 2>/dev/null || { echo "::error::Studio process exited during startup"; echo "--- last log lines ---"; tail -n 60 "$LOG"; exit 1; }
   if grep -q "جاهز للعمل" "$LOG"; then
     URL=$(grep -m1 -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$LOG" || true); break
   fi
 done
-[ -n "$URL" ] || { echo "::error::No tunnel URL was produced"; exit 1; }
+if [ -z "$URL" ]; then echo "::error::No tunnel URL was produced"; echo "--- last log lines ---"; tail -n 60 "$LOG"; echo "--- server.log ---"; tail -n 20 server.log 2>/dev/null; echo "--- cloudflared.log ---"; tail -n 20 cloudflared.log 2>/dev/null; exit 1; fi
 echo "STUDIO URL: $URL"
 
 publish() {
