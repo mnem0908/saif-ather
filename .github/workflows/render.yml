@@ -97,6 +97,7 @@ jobs:
         with:
           name: audio-${{ inputs.job_id }}
           path: audio
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: Stitch (no re-encode) and add audio
         run: |
           ls chunks/*/chunk-*.mp4 | sed 's/.*chunk-\([0-9]*\)\.mp4/\1 &/' | sort -n | awk '{print "file \x27" $2 "\x27"}' > list.txt
