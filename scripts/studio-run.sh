@@ -3,8 +3,8 @@
 # and hands over to a fresh run before GitHub's 6h job limit.
 set -uo pipefail
 : "${GITHUB_REPOSITORY:?}"; : "${GH_TOKEN:?}"
-RUN_SECS=${SA_RUN_SECONDS:-21000}            # exit after 5h50m
-HANDOVER_SECS=${SA_HANDOVER_SECONDS:-20100}  # start the next run at 5h35m
+RUN_SECS=${SA_RUN_SECONDS:-21120}            # exit after 5h52m
+HANDOVER_SECS=${SA_HANDOVER_SECONDS:-19500}  # start the next run at 5h25m (27 min overlap)
 STUDIO_CMD=${STUDIO_CMD:-python3 -u SA_Motion_Studio_v10.py}
 TRIES=${SA_STARTUP_TRIES:-450}
 REMOTE=${PUBLISH_REMOTE:-https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git}
@@ -52,8 +52,9 @@ publish() {
 
 آخر تحديث: $(date -u '+%Y-%m-%d %H:%M UTC') — الرابط يتغيّر كل ~6 ساعات (يُحدَّث هذا الملف تلقائيًا).
 MD
+  printf '{"url":"%s","updated":"%s"}\n' "$URL" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$dir/link.json"
   ( cd "$dir" && git config user.name "studio-bot" && git config user.email "studio-bot@users.noreply.github.com" \
-    && git add LINK.md && { git diff --cached --quiet || git commit -q -m "studio link"; } \
+    && git add LINK.md link.json && { git diff --cached --quiet || git commit -q -m "studio link"; } \
     && { git push -q origin HEAD 2>/dev/null || { git pull -q --rebase origin "$(git rev-parse --abbrev-ref HEAD)" && git push -q origin HEAD; }; } )
   local rc=$?; rm -rf "$dir"; return $rc
 }
