@@ -32,6 +32,7 @@
   var owner = location.hostname.split(".")[0];
   var repo = location.pathname.split("/").filter(Boolean)[0] || "";
   var RAW = "https://raw.githubusercontent.com/" + owner + "/" + repo + "/main/link.json";
+  var API = "https://api.github.com/repos/" + owner + "/" + repo + "/contents/link.json";
   function getKey() {
     var h = decodeURIComponent((location.hash || "").slice(1));
     try { if (h) { localStorage.setItem("sa_key", h); history.replaceState(null, "", location.pathname); return h; } } catch (e) { if (h) return h; }
@@ -57,8 +58,12 @@
       return;
     }
     try {
-      var r = await fetch(RAW + "?t=" + Date.now(), { cache: "no-store" });
-      var j = await r.json();
+      var j = null;
+      try {
+        var ra = await fetch(API, { cache: "no-store", headers: { "Accept": "application/vnd.github+json" } });
+        if (ra.ok) { var o = await ra.json(); j = JSON.parse(decodeURIComponent(escape(atob(String(o.content).replace(/\s/g, ""))))); }
+      } catch (e) {}
+      if (!j) { var r = await fetch(RAW + "?t=" + Date.now(), { cache: "no-store" }); j = await r.json(); }
       if (j && j.url && await alive(j.url)) {
         say("تم العثور على الاستوديو… جاري الدخول", true);
         location.replace(j.url.replace(/\/$/, "") + "/?k=" + encodeURIComponent(key));

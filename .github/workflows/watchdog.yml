@@ -1,0 +1,33 @@
+name: Watchdog
+run-name: watchdog
+
+# Every ~10 minutes: if no studio run is active, start one. Costs a few seconds per check.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Start studio if nothing is running
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          active=$(gh run list -w studio.yml -R "$REPO" --limit 20 --json status -q '[.[]|select(.status=="in_progress" or .status=="queued" or .status=="pending" or .status=="waiting")]|length')
+          echo "active studio runs: $active"
+          if [ "${active:-0}" -eq 0 ]; then
+            echo "none active -> starting one"
+            gh workflow run studio.yml -R "$REPO" -f handover=true
+          fi

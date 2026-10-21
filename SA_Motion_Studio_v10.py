@@ -22,7 +22,7 @@ def sh(cmd, cwd=None):
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 print("🎬 جاري بناء وتجهيز SA Motion Studio v10.0 ...")
-for pat in ["python3 [a]pp.py", "[c]loudflared tunnel", "[r]ender.cjs", "[c]hrome-headless-shell"]:
+for pat in ["python3 [a]pp.py"] + ([] if os.environ.get("SA_NO_TUNNEL") else ["[c]loudflared tunnel"]) + ["[r]ender.cjs", "[c]hrome-headless-shell"]:
     subprocess.run(["pkill", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(1)
 
@@ -2194,7 +2194,7 @@ def cf_ok():
     except Exception:
         return False
 
-if not cf_ok():
+if not cf_ok() and not os.environ.get("SA_NO_TUNNEL"):
     try: os.remove(CF)
     except Exception: pass
     for attempt in range(3):
@@ -2240,7 +2240,7 @@ def start_tunnel(proto):
 
 url = None
 tun_proc = None
-if ok and cf_ok():
+if ok and cf_ok() and not os.environ.get("SA_NO_TUNNEL"):
     for proto in ("http2", "quic", "http2"):
         print(f"🔗 إنشاء النفق ({proto}) ...")
         tun_proc, cand = start_tunnel(proto)
