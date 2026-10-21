@@ -2,6 +2,7 @@
 # Splits the video into N inclusive frame ranges -> matrix JSON on $GITHUB_OUTPUT.
 set -euo pipefail
 TOTAL=$(awk -v d="$IN_DUR" -v f="$IN_FPS" 'BEGIN{printf "%d", d*f+0.5}')
+[ -n "${IN_FRAMES:-}" ] && TOTAL=$IN_FRAMES
 N=${IN_CHUNKS:-8}
 MAXN=$(( TOTAL / 30 )); [ "$MAXN" -lt 1 ] && MAXN=1   # at least ~30 frames per chunk
 [ "$N" -gt "$MAXN" ] && N=$MAXN

@@ -5,18 +5,26 @@ on:
   workflow_dispatch:
     inputs:
       job_id:     { description: 'Job id (used to find this run)', required: true }
-      mediaUrl:   { description: 'Public URL of uploaded media',   required: false, default: '' }
-      title:      { description: 'Video title',                    required: false, default: 'SA Motion Studio' }
-      duration:   { description: 'Duration in seconds',            required: true,  default: '10' }
-      template:   { description: 'title | showcase | captions | videoedit', required: false, default: 'title' }
-      mediaType:  { description: 'video | audio | empty',          required: false, default: '' }
-      width:      { description: 'Width',                          required: false, default: '1080' }
-      height:     { description: 'Height',                         required: false, default: '1920' }
-      fps:        { description: 'FPS',                            required: false, default: '30' }
-      segments:   { description: 'Caption segments JSON',          required: false, default: '[]' }
+      job_url:    { description: 'Studio job JSON url (code+props+media)', required: false, default: '' }
+      frames:     { description: 'Exact total frames (studio mode)', required: false, default: '' }
+      crf:        { description: 'x264 CRF', required: false, default: '18' }
+      preset:     { description: 'x264 preset', required: false, default: 'medium' }
+      mediaUrl:   { description: 'Public URL of uploaded media (template mode)', required: false, default: '' }
+      title:      { description: 'Video title (template mode)', required: false, default: 'SA Motion Studio' }
+      duration:   { description: 'Duration in seconds', required: true,  default: '10' }
+      template:   { description: 'title | showcase | captions | videoedit (template mode)', required: false, default: 'title' }
+      mediaType:  { description: 'video | audio | empty', required: false, default: '' }
+      width:      { description: 'Width',  required: false, default: '1080' }
+      height:     { description: 'Height', required: false, default: '1920' }
+      fps:        { description: 'FPS',    required: false, default: '30' }
+      segments:   { description: 'Caption segments JSON (template mode)', required: false, default: '[]' }
       chunks:     { description: 'Number of parallel machines (max 20)', required: false, default: '8' }
 
 env:
+  IN_JOB: ${{ inputs.job_url }}
+  IN_FRAMES: ${{ inputs.frames }}
+  IN_CRF: ${{ inputs.crf }}
+  IN_PRESET: ${{ inputs.preset }}
   IN_MEDIA: ${{ inputs.mediaUrl }}
   IN_TITLE: ${{ inputs.title }}
   IN_TEMPLATE: ${{ inputs.template }}
@@ -56,9 +64,9 @@ jobs:
           sudo apt-get install -y -qq fonts-noto-core fonts-noto-color-emoji fonts-hosny-amiri libnss3 libgbm1 libasound2t64 || true
           fc-cache -f
       - run: npm install --no-audit --no-fund --legacy-peer-deps
-      - run: bash scripts/make-props.sh
+      - run: bash scripts/prepare.sh
       - name: Render chunk ${{ matrix.chunk.i }} (${{ matrix.chunk.range }})
-        run: npx remotion render src/index.ts MainVideo out/chunk-${{ matrix.chunk.i }}.mp4 --props=./props.json --frames=${{ matrix.chunk.range }} --muted --gl=swangle --codec=h264 --crf=18 --timeout=180000
+        run: npx remotion render src/index.ts MainVideo out/chunk-${{ matrix.chunk.i }}.mp4 --props=./props.json --frames=${{ matrix.chunk.range }} --muted --gl=swangle --disable-web-security --codec=h264 --crf=${IN_CRF:-18} --x264-preset=${IN_PRESET:-medium} --timeout=180000
       - uses: actions/upload-artifact@v4
         with:
           name: chunk-${{ inputs.job_id }}-${{ matrix.chunk.i }}
@@ -77,8 +85,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libnss3 libgbm1 libasound2t64 || true
       - run: npm install --no-audit --no-fund --legacy-peer-deps
-      - run: bash scripts/make-props.sh
-      - run: npx remotion render src/index.ts MainVideo out/audio.aac --props=./props.json --codec=aac --gl=swangle --timeout=180000
+      - run: bash scripts/prepare.sh
+      - run: npx remotion render src/index.ts MainVideo out/audio.aac --props=./props.json --codec=aac --gl=swangle --disable-web-security --timeout=180000
       - uses: actions/upload-artifact@v4
         with:
           name: audio-${{ inputs.job_id }}
