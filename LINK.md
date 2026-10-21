@@ -1,9 +1,7 @@
 # 🎬 SA Motion Studio
 
-**الرابط الحالي:** https://folks-animated-tension-valve.trycloudflare.com
+الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (افتحه مرة بـ `#مفتاحك` في آخره ثم احفظه)
 
-افتحه هكذا (ضع مفتاحك بعد `?k=`):
+الرابط الحالي المباشر: https://chip-adds-sydney-better.trycloudflare.com
 
-`https://folks-animated-tension-valve.trycloudflare.com/?k=مفتاحك`
-
-آخر تحديث: 2026-10-21 19:43 UTC — الرابط يتغيّر كل ~6 ساعات (يُحدَّث هذا الملف تلقائيًا).
+آخر تحديث: 2026-10-21 20:24 UTC — تشغيل رقم 39669774697
