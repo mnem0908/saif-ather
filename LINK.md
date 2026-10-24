@@ -1,7 +1,7 @@
 # 🎬 SA Motion Studio
 
-الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (افتحه مرة بـ `#مفتاحك` في آخره ثم احفظه)
+الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://adventure-execute-infants-supervisor.trycloudflare.com
+الرابط الحالي المباشر: https://implementing-font-hydraulic-are.trycloudflare.com
 
-آخر تحديث: 2026-10-24 05:14 UTC — تشغيل رقم 40065378495
+آخر تحديث: 2026-10-24 06:45 UTC — تشغيل رقم 40071384863
