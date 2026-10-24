@@ -19,6 +19,11 @@ on:
       fps:        { description: 'FPS',    required: false, default: '30' }
       segments:   { description: 'Caption segments JSON (template mode)', required: false, default: '[]' }
       chunks:     { description: 'Number of parallel machines (max 20)', required: false, default: '8' }
+      audio:      { description: 'Render the composition audio track (false = skip that machine)', required: false, default: 'true' }
+      merge:      { description: 'Merge chunks on GitHub (false = the studio merges them itself)', required: false, default: 'true' }
+
+permissions:
+  contents: read
 
 env:
   IN_JOB: ${{ inputs.job_url }}
@@ -35,56 +40,58 @@ env:
   IN_FPS: ${{ inputs.fps }}
   IN_SEG: ${{ inputs.segments }}
   IN_CHUNKS: ${{ inputs.chunks }}
+  IN_CONC: ${{ vars.SA_CONCURRENCY || '4' }}
 
 jobs:
   plan:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       matrix: ${{ steps.p.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+        with: { persist-credentials: false }
       - id: p
         run: bash scripts/plan.sh
 
   render:
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 45
     strategy:
-      fail-fast: true
+      fail-fast: true            # one failed part makes the video useless: free the machines at once
       matrix:
         chunk: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - name: System deps
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq fonts-noto-core fonts-noto-color-emoji fonts-hosny-amiri libnss3 libgbm1 libasound2t64 || true
-          fc-cache -f
-      - run: npm install --no-audit --no-fund --legacy-peer-deps
+        with: { persist-credentials: false }
+      - uses: ./.github/actions/setup
       - run: bash scripts/prepare.sh
       - name: Render chunk ${{ matrix.chunk.i }} (${{ matrix.chunk.range }})
-        run: npx remotion render src/index.ts MainVideo out/chunk-${{ matrix.chunk.i }}.mp4 --props=./props.json --frames=${{ matrix.chunk.range }} --muted --gl=swangle --disable-web-security --codec=h264 --crf=${IN_CRF:-18} --x264-preset=${IN_PRESET:-medium} --timeout=180000
+        run: |
+          # one automatic retry: a headless-Chrome hiccup must not cost the whole video
+          for attempt in 1 2; do
+            if npx remotion render src/index.ts MainVideo out/chunk-${{ matrix.chunk.i }}.mp4 --props=./props.json --frames=${{ matrix.chunk.range }} --muted --concurrency="${IN_CONC:-4}" --gl=swangle --disable-web-security --codec=h264 --crf="${IN_CRF:-18}" --x264-preset="${IN_PRESET:-medium}" --timeout=180000; then exit 0; fi
+            echo "::warning::attempt $attempt failed"; sleep 3
+          done
+          exit 1
       - uses: actions/upload-artifact@v4
         with:
           name: chunk-${{ inputs.job_id }}-${{ matrix.chunk.i }}
           path: out/chunk-${{ matrix.chunk.i }}.mp4
           retention-days: 1
+          compression-level: 0     # mp4 is already compressed: skip useless zip work
 
   audio:
     needs: plan
+    if: ${{ inputs.audio != 'false' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libnss3 libgbm1 libasound2t64 || true
-      - run: npm install --no-audit --no-fund --legacy-peer-deps
+        with: { persist-credentials: false }
+      - uses: ./.github/actions/setup
+        with: { fonts: 'false' }
       - run: bash scripts/prepare.sh
       - run: npx remotion render src/index.ts MainVideo out/audio.aac --props=./props.json --codec=aac --gl=swangle --disable-web-security --timeout=180000
       - uses: actions/upload-artifact@v4
@@ -92,27 +99,35 @@ jobs:
           name: audio-${{ inputs.job_id }}
           path: out/audio.aac
           retention-days: 1
+          compression-level: 0
 
   merge:
     needs: [plan, render, audio]
+    if: ${{ inputs.merge != 'false' && !cancelled() && needs.render.result == 'success' && (needs.audio.result == 'success' || needs.audio.result == 'skipped') }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@v4
         with:
           pattern: chunk-${{ inputs.job_id }}-*
           path: chunks
       - uses: actions/download-artifact@v4
+        if: ${{ inputs.audio != 'false' }}
         with:
           name: audio-${{ inputs.job_id }}
           path: audio
-      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - run: command -v ffmpeg >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; }
       - name: Stitch (no re-encode) and add audio
         run: |
           ls chunks/*/chunk-*.mp4 | sed 's/.*chunk-\([0-9]*\)\.mp4/\1 &/' | sort -n | awk '{print "file \x27" $2 "\x27"}' > list.txt
           cat list.txt
           ffmpeg -y -v error -f concat -safe 0 -i list.txt -c copy video-only.mp4
           mkdir -p out
-          ffmpeg -y -v error -i video-only.mp4 -i audio/audio.aac -map 0:v -map 1:a -c:v copy -c:a aac -b:a 192k -shortest out/video.mp4
+          if [ -f audio/audio.aac ]; then
+            ffmpeg -y -v error -i video-only.mp4 -i audio/audio.aac -map 0:v -map 1:a -c:v copy -c:a aac -b:a 192k -shortest out/video.mp4
+          else
+            cp video-only.mp4 out/video.mp4
+          fi
           ffprobe -v error -show_entries format=duration -of csv=p=0 out/video.mp4
       - uses: actions/upload-artifact@v4
         with:

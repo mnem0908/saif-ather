@@ -20,12 +20,19 @@ jobs:
         with: { node-version: 20 }
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
-      - run: npm install --no-audit --no-fund --legacy-peer-deps
+      - uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: nm-v2-${{ runner.os }}-${{ hashFiles('package.json') }}
+      - run: '[ -d node_modules/@remotion/cli ] || npm install --no-audit --no-fund --legacy-peer-deps'
       - name: Run studio and publish link
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
           GH_REPO: ${{ github.repository }}
-          SA_KEY: ${{ secrets.SA_KEY }}
+          SA_MASTER: ${{ secrets.SA_MASTER }}
+          ADMIN_PASS: ${{ secrets.ADMIN_PASS }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          TG_STORAGE_CHAT: ${{ secrets.TG_STORAGE_CHAT }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           HANDOVER: ${{ inputs.handover }}

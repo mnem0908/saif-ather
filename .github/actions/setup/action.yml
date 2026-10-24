@@ -1,0 +1,30 @@
+name: Setup Remotion runner
+description: Node + cached node_modules/Chrome + system libraries (seconds when the cache is warm)
+inputs:
+  fonts:
+    description: install emoji/Arabic fonts
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with: { node-version: 20 }
+    - name: Restore dependencies (node_modules + Chrome)
+      uses: actions/cache@v4
+      with:
+        path: node_modules
+        key: nm-v2-${{ runner.os }}-${{ hashFiles('package.json') }}
+    - name: System libraries (only what is missing)
+      shell: bash
+      run: |
+        need="libnss3 libgbm1 libasound2t64"
+        [ "${{ inputs.fonts }}" = "true" ] && need="$need fonts-noto-color-emoji fonts-hosny-amiri"
+        if ! dpkg -s $need >/dev/null 2>&1; then
+          sudo apt-get install -y -qq --no-install-recommends $need || { sudo apt-get update -qq; sudo apt-get install -y -qq --no-install-recommends $need || true; }
+          fc-cache -f || true
+        fi
+    - name: Install packages (skipped when cached)
+      shell: bash
+      run: |
+        [ -d node_modules/@remotion/cli ] || npm install --no-audit --no-fund --legacy-peer-deps
+        npx remotion browser ensure

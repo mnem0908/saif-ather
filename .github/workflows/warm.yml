@@ -1,0 +1,31 @@
+name: Warm cache
+run-name: warm cache
+
+# Builds the dependency cache (node_modules + Chrome) so every render starts in seconds instead of minutes.
+on:
+  workflow_dispatch:
+  push:
+    paths: ['package.json', '.github/workflows/warm.yml']
+  schedule:
+    - cron: '17 4 * * *'   # daily, keeps the cache alive (GitHub evicts caches unused for 7 days)
+
+permissions:
+  contents: read
+
+jobs:
+  warm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: nm-v2-${{ runner.os }}-${{ hashFiles('package.json') }}
+      - run: |
+          [ -d node_modules/@remotion/cli ] || npm install --no-audit --no-fund --legacy-peer-deps
+          sudo apt-get install -y -qq --no-install-recommends libnss3 libgbm1 libasound2t64 || true
+          npx remotion browser ensure
+          du -sh node_modules

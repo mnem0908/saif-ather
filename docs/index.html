@@ -23,7 +23,7 @@
   <h1>🎬 SA Motion Studio</h1>
   <div class="dot" id="dot"></div>
   <p id="msg">جاري البحث عن الاستوديو…</p>
-  <input id="key" type="password" placeholder="مفتاح الدخول" autocomplete="off" dir="ltr" hidden>
+  
   <button id="go" hidden>دخول</button>
 </div>
 <script>
@@ -50,13 +50,6 @@
   }
   var tries = 0;
   async function run() {
-    var key = getKey();
-    if (!key) {
-      say("أدخل مفتاح الدخول مرة واحدة (يُحفظ في هذا المتصفح):", false);
-      $("key").hidden = false; $("go").hidden = false;
-      $("go").onclick = function () { var v = $("key").value.trim(); if (v) { try { localStorage.setItem("sa_key", v); } catch (e) {} location.reload(); } };
-      return;
-    }
     try {
       var j = null;
       try {
@@ -66,7 +59,7 @@
       if (!j) { var r = await fetch(RAW + "?t=" + Date.now(), { cache: "no-store" }); j = await r.json(); }
       if (j && j.url && await alive(j.url)) {
         say("تم العثور على الاستوديو… جاري الدخول", true);
-        location.replace(j.url.replace(/\/$/, "") + "/?k=" + encodeURIComponent(key));
+        location.replace(j.url.replace(/\/$/, "") + "/");
         return;
       }
     } catch (e) {}

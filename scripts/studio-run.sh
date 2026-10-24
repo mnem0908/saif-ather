@@ -11,14 +11,17 @@ HANDOVER_SECS=${SA_HANDOVER_SECONDS:-19200}    # start the successor at 5h20m
 GRACE_SECS=${SA_GRACE_SECONDS:-420}            # keep serving 7 min after the successor is published
 MON=${SA_MON_INTERVAL:-20}
 PORT=${SA_PORT:-3847}
-STUDIO_CMD=${STUDIO_CMD:-python3 -u SA_Motion_Studio_v10.py}
+STUDIO_CMD=${STUDIO_CMD:-python3 -u SA_Motion_Studio_v11.py}
 CF=${CF_BIN:-./cf-bin}
 REMOTE=${PUBLISH_REMOTE:-https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git}
 LOG=studio.log; TLOG=tunnel.log
 START=$(date +%s)
 say() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
-if [ -z "${SA_KEY:-}" ]; then echo "::error::Secret SA_KEY is missing. Run: gh secret set SA_KEY -R ${REPO}"; exit 1; fi
+for need in SA_MASTER ADMIN_PASS; do
+  if [ -z "${!need:-}" ]; then echo "::error::Secret $need is missing. Run: gh secret set $need -R ${REPO}"; exit 1; fi
+done
+if [ "${#SA_MASTER}" -lt 16 ]; then echo "::error::SA_MASTER must be at least 16 characters"; exit 1; fi
 
 active_runs() { gh run list -w studio.yml -R "$REPO" --json databaseId,status 2>/dev/null; }
 # a plain start must not duplicate an older active run (ties: the older id wins)
@@ -94,7 +97,7 @@ publish_once() {
   cat > "$dir/LINK.md" <<MD
 # 🎬 SA Motion Studio
 
-الرابط الدائم: **https://${REPO%%/*}.github.io/${REPO##*/}/** (افتحه مرة بـ \`#مفتاحك\` في آخره ثم احفظه)
+الرابط الدائم: **https://${REPO%%/*}.github.io/${REPO##*/}/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
 الرابط الحالي المباشر: $URL
 
@@ -165,7 +168,13 @@ while true; do
       fi
     fi
   fi
-  if [ $RETIRED -eq 1 ] && [ $((NOW - SUCC_AT)) -ge "$GRACE_SECS" ]; then say "grace period over; stopping"; exit 0; fi
+  if [ $RETIRED -eq 1 ] && [ $((NOW - SUCC_AT)) -ge "$GRACE_SECS" ]; then
+    # never cut a render in flight: keep serving until the running jobs are done (bounded by the hard limit)
+    busy=$(curl -fsS -m 5 "http://127.0.0.1:$PORT/api/health" 2>/dev/null | jq -r '.running // 0' 2>/dev/null || echo 0)
+    if [ "${busy:-0}" -gt 0 ] && [ $NOW -lt $RUN_SECS ]; then
+      [ $((NOW % 120)) -lt "$MON" ] && say "retired but $busy job(s) still running; waiting"
+    else say "grace period over; stopping"; exit 0; fi
+  fi
   if [ $NOW -ge $RUN_SECS ]; then say "hard time limit; stopping"; exit 0; fi
 
   BEAT=$((BEAT+MON)); [ $BEAT -ge 600 ] && { say "heartbeat: uptime ${NOW}s url=$URL restarts=$RESTARTS"; BEAT=0; }
