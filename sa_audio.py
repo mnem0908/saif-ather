@@ -86,6 +86,8 @@ def get_music(host, style, key, dur, jid, warns):
 
 
 def detect_cuts(host, video, duration, maxn=40):
+    if not video or not os.path.exists(video):
+        return []
     r = subprocess.run(["ffmpeg", "-v", "info", "-i", video, "-vf", "select='gt(scene,0.28)',showinfo", "-an", "-f", "null", "-"], capture_output=True, text=True)
     ts, last = [], -9
     for t in re.findall(r"pts_time:([\d.]+)", r.stderr):
@@ -95,12 +97,98 @@ def detect_cuts(host, video, duration, maxn=40):
     return ts[:maxn]
 
 
-def build_plan(host, d, raw_video, duration, segments):
+def _nw(x):
+    return re.sub(r"[^\w]", "", re.sub(r"[\u064B-\u065F\u0670]", "", (x or "").lower()))
+
+
+def _num(obj, k):
+    m = re.search(r"\b" + k + r"\s*:\s*(-?[\d.]+)", obj)
+    try: return float(m.group(1)) if m else None
+    except ValueError: return None
+
+
+def _str(obj, k):
+    m = re.search(r"\b" + k + r"\s*:\s*[\"'`]([^\"'`]+)[\"'`]", obj)
+    return m.group(1) if m else None
+
+
+def smart_plan(host, code, duration, words, raw_video, owner, warns):
+    """Code-driven sound design. Each entry of `export const SFX = [...]` may be placed by
+       t (seconds) | rt (0..1 of the video) | word:"text" (+nth) | scene:N (N-th cut)   [+ offset]
+       and can play a built-in `kind` or one of the user's own library files via `file`.
+       `export const SYNC = { snap: 0.3 }` snaps every cue to the nearest spoken-word start or scene cut."""
+    m = re.search(r"export\s+const\s+SFX\s*(?::[^=]+)?=\s*\[([\s\S]*?)\]\s*;?", code)
+    if not m:
+        return None, None
+    snap = 0.0
+    ms = re.search(r"export\s+const\s+SYNC\s*(?::[^=]+)?=\s*\{([^}]*)\}", code)
+    if ms:
+        snap = max(0.0, min(1.5, _num(ms.group(1), "snap") or 0.0))
+    entries = re.findall(r"\{([^}]*)\}", m.group(1))
+    need_cuts = snap > 0 or any(re.search(r"\bscene\s*:", e) for e in entries)
+    cuts = detect_cuts(host, raw_video, duration) if need_cuts else []
+    anchors = sorted([w["start"] for w in words] + cuts)
+    nwords = [(_nw(w.get("text")), w) for w in words]
+    plan, how, snapped = [], {"t": 0, "word": 0, "scene": 0, "rt": 0}, 0
+    for e in entries:
+        kind, fname = _str(e, "kind"), _str(e, "file")
+        if not (kind or fname):
+            continue
+        t, via = _num(e, "t"), "t"
+        if t is None and _num(e, "rt") is not None:
+            t, via = _num(e, "rt") * duration, "rt"
+        if t is None and _str(e, "word"):
+            target, nth = _nw(_str(e, "word")), int(_num(e, "nth") or 1)
+            hits = [w for n, w in nwords if n and (n == target or (len(target) > 2 and target in n))]
+            if len(hits) >= nth:
+                t, via = hits[nth - 1]["start"], "word"
+            else:
+                warns.append(f"الكلمة «{_str(e, 'word')}» غير موجودة في التفريغ (فُرّغ الصوت؟) فتخطّيت هذا المؤثر.")
+                continue
+        if t is None and _num(e, "scene") is not None:
+            i = int(_num(e, "scene"))
+            if 1 <= i <= len(cuts):
+                t, via = cuts[i - 1], "scene"
+            else:
+                warns.append(f"لا توجد قطعة مشهد رقم {i} (اكتُشفت {len(cuts)}).")
+                continue
+        if t is None:
+            continue
+        t += _num(e, "offset") or 0.0
+        if snap > 0 and anchors and via != "word":
+            near = min(anchors, key=lambda a: abs(a - t))
+            if abs(near - t) <= snap and abs(near - t) > 0.001:
+                t = near; snapped += 1
+        item = {"t": max(0.0, t), "vol": _num(e, "vol") or _num(e, "volume") or 1.0}
+        if fname:
+            fn = os.path.basename(fname)
+            rec = (host.MEDIA or {}).get(fn)
+            if not rec or not (rec.get("owner") == owner or owner == "ADMIN"):
+                warns.append(f"الملف «{fn}» غير موجود في مكتبتك.")
+                continue
+            p = f"{host.W}/public/{fn}"
+            if not os.path.exists(p):
+                warns.append(f"الملف «{fn}» غير متاح حالياً.")
+                continue
+            item["file"] = p; item["kind"] = "custom"
+        else:
+            item["kind"] = kind
+        how[via] += 1
+        plan.append(item)
+    parts = [f"{n} عند {lbl}" for k, lbl in (("t", "ثانية محددة"), ("rt", "نسبة من الفيديو"), ("word", "كلمة منطوقة"), ("scene", "قطعة مشهد")) for n in [how[k]] if n]
+    summ = f"{len(plan)} مؤثر ({'، '.join(parts)})" + (f" · انحاز {snapped} لأقرب كلمة/قطعة" if snapped else "")
+    return plan, summ
+
+
+def build_plan(host, d, raw_video, duration, segments, warns=None, owner=""):
     """returns (plan, source)"""
     code = d.get("code", "")
-    plan = host.code_sfx(code, duration)
-    if plan:
-        return plan, "من SFX في الكود"
+    words = d.get("words") or []
+    if not words and segments:
+        words = [{"text": x.get("text", ""), "start": x["start"], "end": x.get("end", x["start"])} for x in segments]
+    plan, summ = smart_plan(host, code, duration, words, raw_video, owner, warns if warns is not None else [])
+    if plan is not None:
+        return plan, "الكود: " + summ
     if segments:
         plan = []
         for i, s in enumerate(segments):
@@ -179,11 +267,15 @@ def finish(host, jid, d, J, raw, final, duration, voice, segments):
     sfx, rep = [], {"sfx": None, "music": None}
     if sc.get("enabled"):
         J.update(stage="تجهيز المؤثرات الصوتية", progress=92)
-        plan, src = build_plan(host, d, raw, duration, segments)
+        plan, src = build_plan(host, d, raw, duration, segments, warns, J.get("owner", ""))
         fs_n = loc_n = 0
         reasons = set()
         for i, it in enumerate(plan[:80]):
             if it["t"] >= duration:
+                continue
+            if it.get("file"):  # the subscriber's own audio file
+                sfx.append((it["file"], it["t"], SFX_VOL * it.get("vol", 1.0)))
+                used.append({"kind": "custom", "t": it["t"], "source": "ملفك"})
                 continue
             path, source = host.get_sfx(it["kind"], key, i % 4)
             if source.startswith("Freesound"):
@@ -195,6 +287,7 @@ def finish(host, jid, d, J, raw, final, duration, voice, segments):
             sfx.append((path, it["t"], SFX_VOL * it.get("vol", 1.0)))
             used.append({"kind": it["kind"], "t": it["t"], "source": source})
         rep["sfx"] = {"plan": src, "count": len(sfx), "freesound": fs_n, "local": loc_n}
+        if src.startswith("الكود"): rep["sync"] = src[6:]
         if not sfx:
             warns.append("المؤثرات مفعّلة لكن لم تُوجد مواضع مناسبة لها.")
         if key and loc_n and not fs_n:

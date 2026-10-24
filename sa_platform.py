@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """SA Motion Studio — subscription platform: users, sessions, plans/quotas, ownership, admin API, durable media.
 Installed into the studio's Flask app by `install(host)` (host = the app module)."""
-import os, re, sys, json, time, hmac, hashlib, base64, secrets, threading, shutil, subprocess, traceback
-from flask import request, jsonify, g, redirect, make_response, send_file, abort, Response
+import os, re, sys, struct, json, time, hmac, hashlib, base64, secrets, threading, shutil, subprocess, traceback
+from flask import has_request_context, request, jsonify, g, redirect, make_response, send_file, abort, Response
 
 import sa_store
 import sa_pages
 import sa_cloud
 
-COLLS = ["users", "media", "tr", "usage", "audit", "settings", "state"]
+COLLS = ["users", "media", "tr", "usage", "audit", "settings", "state", "sessions"]
 ALPHA_ID = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 ALPHA_PW = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
 DAY = 86400
@@ -16,25 +16,40 @@ DAY = 86400
 FEATURES = {
     "upload": "رفع الملفات", "code": "محرر الكود والقوالب", "render": "رندر الفيديو", "still": "لقطات ثابتة", "cloud": "رندر سحابي موزّع (سريع)",
     "transcribe": "تفريغ الصوت ومزامنة الكلمات", "cut": "قص الصمت", "sfx": "مؤثرات صوتية", "music": "موسيقى خلفية",
-    "tts": "توليد صوت من النص (TTS)", "hd": "جودة عالية (أكثر من 1080p)",
+    "tts": "TTS عبر API (متقدم — بدون واجهة)", "hd": "جودة عالية (أكثر من 1080p)",
 }
 QUOTA_LABELS = {
     "renders_day": "عدد الرندرات يومياً", "max_duration": "أقصى مدة للفيديو (ثانية)", "storage_mb": "مساحة التخزين (MB)",
-    "tts_chars_day": "حروف TTS يومياً", "concurrent": "عمليات رندر متزامنة", "asr_min_day": "دقائق التفريغ يومياً", "stills_day": "اللقطات يومياً",
+    "tts_chars_day": "حروف TTS يومياً", "concurrent": "عمليات رندر متزامنة", "max_devices": "عدد الأجهزة المتزامنة", "asr_min_day": "دقائق التفريغ يومياً", "stills_day": "اللقطات يومياً",
 }
 DEFAULT_PLANS = {
     "basic": {"label": "أساسي", "features": ["upload", "code", "render", "still", "sfx", "cloud"],
-              "quotas": {"renders_day": 5, "max_duration": 60, "storage_mb": 300, "tts_chars_day": 0, "asr_min_day": 0, "stills_day": 40, "concurrent": 1}},
+              "quotas": {"renders_day": 5, "max_duration": 60, "storage_mb": 300, "tts_chars_day": 0, "asr_min_day": 0, "stills_day": 40, "concurrent": 1, "max_devices": 1}},
     "pro": {"label": "احترافي", "features": ["upload", "code", "render", "still", "sfx", "music", "cloud", "transcribe", "cut", "tts"],
-            "quotas": {"renders_day": 20, "max_duration": 180, "storage_mb": 1500, "tts_chars_day": 20000, "asr_min_day": 60, "stills_day": 200, "concurrent": 2}},
-    "vip": {"label": "VIP", "features": list(FEATURES), "quotas": {"renders_day": 80, "max_duration": 600, "storage_mb": 5000, "tts_chars_day": 100000, "asr_min_day": 300, "stills_day": 600, "concurrent": 3}},
+            "quotas": {"renders_day": 20, "max_duration": 180, "storage_mb": 1500, "tts_chars_day": 20000, "asr_min_day": 60, "stills_day": 200, "concurrent": 2, "max_devices": 1}},
+    "vip": {"label": "VIP", "features": list(FEATURES), "quotas": {"renders_day": 80, "max_duration": 600, "storage_mb": 5000, "tts_chars_day": 100000, "asr_min_day": 300, "stills_day": 600, "concurrent": 3, "max_devices": 2}},
 }
 DEFAULT_SETTINGS = {"site_name": "SA Motion Studio", "public_url": "", "maintenance": False, "maintenance_msg": "الموقع تحت الصيانة، عُد بعد قليل.",
-                    "max_cloud": 12, "cloud_slots": 15, "sec_per_machine": 10, "default_plan": "pro", "welcome": ""}
+                    "max_cloud": 12, "cloud_slots": 15, "sec_per_machine": 10, "default_plan": "pro", "welcome": "", "share_kicks": 6}
+USER_KEYS = ("freesound_key", "groq_key", "elevenlabs_key", "minimax_key", "openai_key")
+USER_KEY_UI = ("freesound_key", "groq_key")
 SECRET_KEYS = ["freesound_key", "elevenlabs_key", "minimax_key", "openai_key", "groq_key"]
 PLAIN_KEYS = ["minimax_group", "minimax_base", "openai_base", "openai_model", "tts_default", "minimax_model", "elevenlabs_model"]
 
 P = None  # singleton
+
+_orig_thread_init = threading.Thread.__init__
+
+
+def _thread_init(self, *a, **k):
+    _orig_thread_init(self, *a, **k)
+    try:
+        self._sa_uid = P.cur_uid() if P else ""
+    except Exception:
+        self._sa_uid = ""
+
+
+threading.Thread.__init__ = _thread_init
 
 
 def hash_pw(pw: str) -> str:
@@ -89,6 +104,7 @@ class Platform:
         self.h, self.v, self.db = host, vault, vault.db
         self.started = time.time()
         self.fails = {}
+        self.hits = {}
         self.fl = threading.Lock()
         self.sync_lock = threading.Lock()
         self._media_sig = {}
@@ -101,7 +117,26 @@ class Platform:
         return s
 
     def setting(self, k, default=""):
+        if k in USER_KEYS:  # a subscriber's own key (if any) wins over the site key — for that subscriber only
+            uk = self.user_key(k)
+            if uk:
+                return uk
         return self.settings().get(k, default)
+
+    def cur_uid(self):
+        try:
+            if has_request_context():
+                u = getattr(g, "user", None)
+                return u["id"] if u else ""
+        except Exception:
+            pass
+        return getattr(threading.current_thread(), "_sa_uid", "") or ""
+
+    def user_key(self, k):
+        uid = self.cur_uid()
+        if not uid:
+            return ""
+        return ((self.db.get("state", "keys:" + uid) or {}).get(k) or "").strip()
 
     def plans(self):
         p = self.db.get("settings", "plans")
@@ -134,6 +169,7 @@ class Platform:
         base.update(u.get("quotas") or {})
         if u.get("role") == "admin":
             base = {k: 10 ** 9 for k in QUOTA_LABELS}
+            base["max_devices"] = 5
         return base
 
     def usage(self, uid, day=None):
@@ -194,28 +230,126 @@ class Platform:
         return True
 
     # ------------------------------------------------------------------ sessions
-    def make_cookie(self, u, days=14):
-        body = "%s|%d|%d" % (u["id"], u.get("sv", 1), int(time.time() + days * DAY))
+    # sessions: every login creates a server-side session; the signed cookie only points to it.
+    def make_cookie(self, u, sid, days=14):
+        body = "%s|%d|%d|%s" % (u["id"], u.get("sv", 1), int(time.time() + days * DAY), sid)
         p = b64u(body.encode())
         return p + "." + b64u(hmac.new(self.sign_key, p.encode(), hashlib.sha256).digest())
 
-    def read_cookie(self, c):
+    def read_session(self, c):
+        """-> (user, sid, reason). reason in (None, 'invalid', 'kicked', 'revoked')"""
         try:
             p, sig = c.split(".")
             if not hmac.compare_digest(b64u(hmac.new(self.sign_key, p.encode(), hashlib.sha256).digest()), sig):
-                return None
-            uid, sv, exp = unb64u(p).decode().split("|")
+                return None, None, "invalid"
+            uid, sv, exp, sid = unb64u(p).decode().split("|")
             if time.time() > int(exp):
-                return None
+                return None, None, "invalid"
             u = self.user_rec(uid)
             if not u or int(sv) != u.get("sv", 1):
-                return None
-            return u
+                return None, None, "revoked"
+            s = self.db.get("sessions", sid)
+            if not s or s.get("uid") != uid:
+                return None, None, "revoked"
+            if s.get("revoked"):
+                return None, None, ("kicked" if s.get("why") == "kicked" else "revoked")
+            if time.time() > s.get("exp", 0):
+                return None, None, "invalid"
+            return u, sid, None
         except Exception:
-            return None
+            return None, None, "invalid"
+
+    def read_cookie(self, c):
+        return self.read_session(c)[0]
+
+    def touch(self, sid):
+        s = self.db.get("sessions", sid)
+        if s and time.time() - s.get("last", 0) > 600:
+            self.db.put("sessions", sid, {**s, "last": time.time(), "ip": self.ip()})
+
+    def sessions_of(self, uid):
+        now = time.time()
+        rows = [(k, v) for k, v in self.db.all("sessions").items() if v.get("uid") == uid and not v.get("revoked") and v.get("exp", 0) > now]
+        return sorted(rows, key=lambda kv: kv[1].get("last", 0))
+
+    def revoke_session(self, sid, why="revoked"):
+        s = self.db.get("sessions", sid)
+        if s and not s.get("revoked"):
+            self.db.put("sessions", sid, {**s, "revoked": time.time(), "why": why})
+
+    def open_session(self, u, days, old_sid=None):
+        """create a session, enforcing the per-subscriber device limit (oldest session is kicked)."""
+        uid = u["id"]
+        if old_sid:
+            s = self.db.get("sessions", old_sid)
+            if s and s.get("uid") == uid:
+                self.revoke_session(old_sid, "relogin")
+        limit = max(1, int(self.quotas(u).get("max_devices", 1) or 1))
+        act = self.sessions_of(uid)
+        kicked = 0
+        while len(act) >= limit:
+            sid0, _ = act.pop(0)
+            self.revoke_session(sid0, "kicked"); kicked += 1
+        sid = secrets.token_urlsafe(12)
+        now = time.time()
+        ua = (request.headers.get("User-Agent") or "")[:120]
+        self.db.put("sessions", sid, {"uid": uid, "created": now, "last": now, "exp": now + days * DAY, "ip": self.ip(), "ua": ua})
+        if kicked and u.get("role") != "admin":
+            cur = self.user_rec(uid) or u
+            ks = [t for t in (cur.get("kicks") or []) if now - t < 2 * DAY] + [now] * kicked
+            upd = {**cur, "kicks": ks[-60:]}
+            lim = int(self.setting("share_kicks", 6) or 0)
+            k24 = len([t for t in ks if now - t < DAY])
+            if lim and k24 >= lim and cur.get("status") != "suspended":
+                upd.update(status="suspended", sv=cur.get("sv", 1) + 1, flag="sharing",
+                           note=((cur.get("note") or "") + " | إيقاف تلقائي: اشتباه مشاركة الحساب").strip(" |")[:300])
+                self.audit("auto_suspend", uid, "system", f"{k24} kicks/24h", self.ip())
+            else:
+                self.audit("session_kick", uid, "system", f"{kicked} old session(s) ended", self.ip())
+            self.db.put("users", uid, upd)
+        return sid
+
+    def sweep_sessions(self):
+        now = time.time()
+        if now - getattr(self, "_sw", 0) < 3600:
+            return
+        self._sw = now
+        for k, v in list(self.db.all("sessions").items()):
+            if v.get("exp", 0) < now - DAY or (v.get("revoked") and now - v["revoked"] > 2 * DAY):
+                self.db.delete("sessions", k)
+
+    # ---- TOTP (RFC 6238, stdlib only) for the administrator
+    @staticmethod
+    def totp_code(secret, counter):
+        key = base64.b32decode(secret.upper() + "=" * (-len(secret) % 8))
+        h = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+        o = h[-1] & 15
+        return "%06d" % ((struct.unpack(">I", h[o:o + 4])[0] & 0x7fffffff) % 1000000)
+
+    def totp_verify(self, secret, code, last=0):
+        code = re.sub(r"\D", "", code or "")
+        if len(code) != 6:
+            return 0
+        c0 = int(time.time() // 30)
+        for c in (c0, c0 - 1, c0 + 1):
+            if c > last and hmac.compare_digest(self.totp_code(secret, c), code):
+                return c
+        return 0
 
     def ip(self):
         return (request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "?")[:45]
+
+    def rate(self, key, limit, window):
+        """sliding-window counter; True when the caller is over the limit (counts this call)."""
+        now = time.time()
+        with self.fl:
+            arr = [t for t in self.hits.get(key, []) if now - t < window]
+            arr.append(now)
+            self.hits[key] = arr
+            if len(self.hits) > 20000:
+                for k in list(self.hits)[:5000]:
+                    self.hits.pop(k, None)
+            return len(arr) > limit
 
     def throttled(self, key, limit, window):
         now = time.time()
@@ -512,6 +646,7 @@ def _pull_loop():
 
 
 FEATURE_OF = {"/api/transcribe": "transcribe", "/api/segments": "transcribe", "/api/cut_silence": "cut", "/api/upload": "upload", "/api/tts": "tts", "/api/tts/voices": "tts"}
+HEAVY = {"/api/render", "/api/tts", "/api/transcribe", "/api/cut_silence"}
 OPEN_PATHS = {"/api/health", "/icon.svg", "/login", "/api/login", "/favicon.ico"}
 
 
@@ -529,15 +664,21 @@ def register(app):
             return None
         if not P.admin_ready:
             return Response("ADMIN_PASS غير مضبوط. أضفه كسر في GitHub ثم أعد التشغيل.", 503, {"Content-Type": "text/plain; charset=utf-8"})
-        u = P.read_cookie(request.cookies.get("sa_s", ""))
+        ip = P.ip()
+        if P.rate(f"ipall:{ip}", 1500, 60):
+            return jerr("طلبات كثيرة جداً. تمهّل قليلاً.", 429)
+        u, sid, why = P.read_session(request.cookies.get("sa_s", ""))
         if request.method in ("POST", "PUT", "DELETE", "PATCH"):
             org = request.headers.get("Origin")
             if org and re.sub(r"^https?://", "", org) != request.host:
                 return jerr("origin", 403)
+            if request.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
+                return jerr("origin", 403)
         if not u:
+            msg = "تم تسجيل الدخول بهذا الحساب من جهاز آخر، لذلك أُنهيت جلستك هنا." if why == "kicked" else "auth"
             if path.startswith("/api/"):
-                return jerr("auth", 401)
-            return redirect("/login")
+                return jerr(msg, 401)
+            return redirect("/login" + ("?e=kicked" if why == "kicked" else ""))
         st = P.status_of(u)
         if st != "active":
             if path.startswith("/api/"):
@@ -547,11 +688,15 @@ def register(app):
                 resp.delete_cookie("sa_s")
                 return resp
         g.user = u
+        g.sid = sid
+        P.touch(sid)
+        if P.rate(f"u:{u['id']}", 900, 60) or (path in HEAVY and P.rate(f"heavy:{u['id']}", 40, 60)):
+            return jerr("عمليات كثيرة في وقت قصير. انتظر دقيقة.", 429)
         if P.setting("maintenance") and u.get("role") != "admin" and path not in ("/api/me", "/api/logout"):
             return jerr(P.setting("maintenance_msg"), 503)
         if path.startswith("/admin") or path.startswith("/api/admin"):
             if u.get("role") != "admin":
-                return jerr("forbidden", 403) if path.startswith("/api/") else redirect("/")
+                return jerr("forbidden", 403) if path.startswith("/api/") else Response("Not Found", 404, {"Content-Type": "text/plain"})
         ft = FEATURE_OF.get(path)
         if ft and not P.can(ft):
             return jerr("هذه الميزة غير مفعّلة في اشتراكك.", 403)
@@ -563,7 +708,13 @@ def register(app):
     def _hdr(resp):
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("Referrer-Policy", "same-origin")
-        resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+        resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+        resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+        resp.headers.setdefault("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                                "font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
+                                "frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'")
         if request.path.startswith("/api/") and not request.path.startswith("/api/video") and not request.path.startswith("/api/still"):
             resp.headers["Cache-Control"] = "no-store"
         return resp
@@ -588,6 +739,8 @@ def register(app):
             if wait:
                 return jerr(f"محاولات كثيرة. حاول بعد {wait // 60 + 1} دقيقة.", 429)
         u = P.user_rec(uid) if uid else None
+        if P.rate(f"loginpost:{ip}", 60, 600):
+            return jerr("محاولات كثيرة. حاول بعد قليل.", 429)
         pw_try = [pw.strip(), re.sub(r"[\s]+", "", pw)]
         flat = re.sub(r"[\s-]+", "", pw)
         if len(flat) == 12 and flat.isalnum():  # tolerate a pasted password without its dashes
@@ -604,6 +757,20 @@ def register(app):
         st = P.status_of(u)
         if st == "suspended":
             return jerr("هذا الحساب موقوف. تواصل مع المدير.", 403)
+        if u.get("role") == "admin":
+            if P.throttled(f"admin:{ip}", 8, 1800):
+                return jerr("محاولات كثيرة على حساب المدير. حاول لاحقاً.", 429)
+            tot = u.get("totp")
+            if tot and os.environ.get("ADMIN_2FA_OFF") != "1":
+                code = (d.get("totp") or "").strip()
+                if not code:
+                    return jsonify({"need_totp": True})
+                used = P.totp_verify(tot, code, int(u.get("totp_last", 0)))
+                if not used:
+                    P.fail(f"admin:{ip}"); P.fail(f"ip:{ip}")
+                    P.audit("admin_2fa_fail", uid, "", "bad code", ip)
+                    return jerr("رمز التحقق غير صحيح.", 401)
+                u = P.db.put("users", uid, {**u, "totp_last": used})
         if st == "pending":  # subscription starts at first login
             u = dict(u); u["expires"] = time.time() + int(u.get("days", 30)) * DAY
         elif st == "expired":
@@ -614,17 +781,60 @@ def register(app):
         dev.insert(0, {"ip": ip, "ua": ua, "t": time.time()})
         u = P.db.put("users", uid, {**u, "last_login": time.time(), "logins": u.get("logins", 0) + 1, "devices": dev[:12]})
         P.audit("login", uid, "", ua[:60], ip)
-        resp = jsonify({"ok": True, "admin": u.get("role") == "admin"})
+        P.sweep_sessions()
+        adm = u.get("role") == "admin"
+        days = 0.5 if adm else 14
+        old = (P.read_session(request.cookies.get("sa_s", "")) or (None, None, None))[1]
+        sid = P.open_session(u, days, old)
+        u = P.user_rec(uid) or u
+        if u.get("status") == "suspended":  # the kick limit just tripped
+            return jerr("تم إيقاف الحساب تلقائياً بسبب اشتباه مشاركته بين عدة أشخاص. تواصل مع المدير.", 403)
+        resp = jsonify({"ok": True, "admin": adm})
         sec = request.is_secure or request.headers.get("X-Forwarded-Proto") == "https"
-        resp.set_cookie("sa_s", P.make_cookie(u), max_age=14 * DAY, httponly=True, samesite="Lax", secure=sec, path="/")
+        resp.set_cookie("sa_s", P.make_cookie(u, sid, days), max_age=int(days * DAY), httponly=True, samesite="Lax", secure=sec, path="/")
         return resp
 
     @app.route("/api/logout", methods=["POST"])
     @app.route("/logout")
     def api_logout():
         resp = redirect("/login") if request.method == "GET" else jsonify({"ok": True})
+        _u, _sid, _w = P.read_session(request.cookies.get("sa_s", ""))
+        if _sid: P.revoke_session(_sid, "logout")
         resp.delete_cookie("sa_s", path="/")
         return resp
+
+    @app.route("/api/mykeys", methods=["GET", "PUT"])
+    def api_mykeys():
+        uid = P.uid()
+        cur = dict(P.db.get("state", "keys:" + uid) or {})
+        if request.method == "PUT":
+            d = request.get_json(silent=True) or {}
+            for k in USER_KEY_UI:
+                if k in d and isinstance(d[k], str):
+                    v = d[k].strip()
+                    if not v:
+                        cur.pop(k, None)
+                    elif re.fullmatch(r"[A-Za-z0-9_\-\.]{8,200}", v):
+                        cur[k] = v
+                    else:
+                        return jerr("صيغة المفتاح غير صحيحة (أحرف وأرقام وشرطات فقط).", 400)
+            P.db.put("state", "keys:" + uid, cur)
+            P.audit("mykeys", uid, "", ",".join(sorted(cur)), P.ip())
+        site = P.settings()
+        return jsonify({"keys": {k: {"set": bool(cur.get(k)), "tail": (cur.get(k) or "")[-4:]} for k in USER_KEY_UI},
+                        "platform": {k.replace("_key", ""): bool(site.get(k)) for k in USER_KEY_UI}})
+
+    @app.route("/api/mykeys/test/<prov>", methods=["POST"])
+    def api_mykeys_test(prov):
+        if prov not in ("freesound", "groq"):
+            return jerr("bad", 400)
+        if P.rate(f"keytest:{P.uid()}", 12, 60):
+            return jerr("تمهّل قليلاً", 429)
+        import sa_tts
+        try:
+            return jsonify(sa_tts.test_provider(P, prov))
+        except Exception as e:
+            return jsonify({"ok": False, "msg": str(e)[:160]})
 
     @app.route("/api/me")
     def api_me():
@@ -696,7 +906,8 @@ def _user_row(u):
     return {"id": u["id"], "name": u.get("name", ""), "role": u.get("role"), "plan": u.get("plan"), "status": st, "created": u.get("created"),
             "expires": u.get("expires", 0), "days": u.get("days"), "start": u.get("start"), "last_login": u.get("last_login", 0), "logins": u.get("logins", 0),
             "features": P.features(u), "custom_features": u.get("features") is not None, "quotas": q, "custom_quotas": u.get("quotas") or {},
-            "usage": us, "totals": u.get("totals", {}), "note": u.get("note", ""), "storage_mb": round(P.storage_used(u["id"]) / 1e6, 1),
+            "usage": us, "totals": u.get("totals", {}), "note": u.get("note", ""), "flag": u.get("flag", ""),
+            "sessions": len(P.sessions_of(u["id"])), "kicks24": len([t for t in (u.get("kicks") or []) if time.time() - t < DAY]), "storage_mb": round(P.storage_used(u["id"]) / 1e6, 1),
             "days_left": None if u.get("role") == "admin" else (int((u["expires"] - time.time()) // DAY) if u.get("expires") else None)}
 
 
@@ -760,7 +971,10 @@ def register_admin(app):
             if j.get("status") == "processing":
                 live.append({"id": j.get("id"), "owner": j.get("owner"), "kind": j.get("kind"), "cloud": bool(j.get("cloud")), "stage": j.get("stage"),
                              "progress": j.get("progress"), "details": j.get("details"), "age": int(now - j.get("created", now)), "run_url": j.get("run_url")})
-        return jsonify({"cloud": {"used": pool.used, "cap": cap, "queued": max(0, len(pool.q)), "jobs": live[:30]}, "users": len(users), "status": stc, "renders_today": renders, "tts_today": tts, "running": len(jobs),
+        sus = sorted([{"id": u["id"], "name": u.get("name", ""), "kicks24": len([t for t in (u.get("kicks") or []) if now - t < DAY]), "status": P.status_of(u)}
+                      for u in users if any(now - t < DAY for t in (u.get("kicks") or []))], key=lambda r: -r["kicks24"])[:8]
+        fails24 = sum(1 for v in db.all("audit").values() if v.get("ev") in ("login_fail", "admin_2fa_fail") and now - v.get("t", 0) < DAY)
+        return jsonify({"alerts": {"sharing": sus, "fails24": fails24, "twofa": bool((db.get("users", "ADMIN") or {}).get("totp"))}, "cloud": {"used": pool.used, "cap": cap, "queued": max(0, len(pool.q)), "jobs": live[:30]}, "users": len(users), "status": stc, "renders_today": renders, "tts_today": tts, "running": len(jobs),
                         "media": {"count": len(media), "mb": round(sum(m.get("size", 0) for m in media) / 1e6, 1), "backed": sum(1 for m in media if m.get("locs"))},
                         "storage": P.v.status(), "instance": {"run": os.environ.get("GITHUB_RUN_ID", "local"), "uptime": int(now - P.started), "version": host.VERSION, "cloud": host.cloud_enabled(), "repo": host.GH_REPO},
                         "recent": [dict(v, id=k) for k, v in aud], "top": [{"id": u["id"], "name": u.get("name"), "renders": u.get("totals", {}).get("renders", 0)} for u in top]})
@@ -820,6 +1034,9 @@ def register_admin(app):
                 if purge:
                     P.delete_media(m)
             db.delete("users", uid)
+            db.delete("state", "keys:" + uid)
+            for k0, v0 in list(db.all("sessions").items()):
+                if v0.get("uid") == uid: db.delete("sessions", k0)
             P.audit("delete_user", uid, A(), "purge" if purge else "keep media")
             db.flush()
             return jsonify({"ok": True})
@@ -877,6 +1094,54 @@ def register_admin(app):
         P.audit("force_logout", uid, A())
         return jsonify({"ok": True})
 
+    @app.route("/api/admin/users/<uid>/sessions")
+    def adm_sessions(uid):
+        uid = norm_id(uid)
+        return jsonify({"items": [dict(v, id=k) for k, v in reversed(P.sessions_of(uid))]})
+
+    @app.route("/api/admin/sessions/<sid>/revoke", methods=["POST"])
+    def adm_revoke(sid):
+        s = db.get("sessions", sid)
+        if not s: return jerr("غير موجودة", 404)
+        P.revoke_session(sid, "admin")
+        P.audit("session_revoke", s.get("uid", ""), A(), sid[:6])
+        return jsonify({"ok": True})
+
+    @app.route("/api/admin/users/<uid>/unflag", methods=["POST"])
+    def adm_unflag(uid):
+        uid = norm_id(uid); u = db.get("users", uid)
+        if not u: return jerr("غير موجود", 404)
+        db.put("users", uid, {**u, "kicks": [], "flag": ""})
+        P.audit("unflag", uid, A())
+        return jsonify({"ok": True})
+
+    @app.route("/api/admin/2fa", methods=["GET", "POST", "DELETE"])
+    def adm_2fa():
+        u = db.get("users", "ADMIN") or {}
+        if request.method == "GET":
+            return jsonify({"enabled": bool(u.get("totp")), "forced_off": os.environ.get("ADMIN_2FA_OFF") == "1"})
+        d = request.get_json(silent=True) or {}
+        if request.method == "POST":
+            if d.get("action") == "setup":
+                sec = base64.b32encode(os.urandom(20)).decode().rstrip("=")
+                db.put("users", "ADMIN", {**u, "totp_pending": sec})
+                site = P.setting("site_name").replace(" ", "")
+                return jsonify({"secret": sec, "uri": f"otpauth://totp/{site}:admin?secret={sec}&issuer={site}&digits=6&period=30"})
+            if d.get("action") == "enable":
+                sec = u.get("totp_pending")
+                c = P.totp_verify(sec, d.get("code", "")) if sec else 0
+                if not c: return jerr("الرمز غير صحيح. تأكد من ساعة الهاتف وأعد المحاولة.", 400)
+                db.put("users", "ADMIN", {**u, "totp": sec, "totp_pending": None, "totp_last": c, "sv": u.get("sv", 1)})
+                P.audit("admin_2fa_on", "ADMIN", A())
+                return jsonify({"ok": True})
+        if request.method == "DELETE":
+            c = P.totp_verify(u.get("totp", ""), (request.args.get("code") or d.get("code") or ""), int(u.get("totp_last", 0))) if u.get("totp") else 1
+            if not c: return jerr("الرمز غير صحيح.", 400)
+            db.put("users", "ADMIN", {**u, "totp": None, "totp_pending": None})
+            P.audit("admin_2fa_off", "ADMIN", A())
+            return jsonify({"ok": True})
+        return jerr("bad request", 400)
+
     @app.route("/api/admin/audit")
     def adm_audit():
         uid = norm_id(request.args.get("uid", ""))
@@ -897,6 +1162,9 @@ def register_admin(app):
         if "maintenance" in d: cur["maintenance"] = bool(d["maintenance"])
         if "max_cloud" in d:
             try: cur["max_cloud"] = max(1, min(30, int(d["max_cloud"])))
+            except Exception: pass
+        if "share_kicks" in d:
+            try: cur["share_kicks"] = max(0, min(50, int(d["share_kicks"])))
             except Exception: pass
         if "sec_per_machine" in d:
             try: cur["sec_per_machine"] = max(2, min(120, int(d["sec_per_machine"])))
