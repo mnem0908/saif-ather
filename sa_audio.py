@@ -73,10 +73,20 @@ def fs_music(host, style, key, dur, out):
     raise RuntimeError(last or "لا نتائج موسيقى في Freesound")
 
 
-def get_music(host, style, key, dur, jid, warns):
+def get_music(host, style, key, dur, jid, warns, el_key=""):
     out = f"{host.W}/out/{jid}_music.m4a"
     if style not in STYLES:
         style = "chill"
+    if el_key:
+        try:
+            import sa_eleven
+            src, label = sa_eleven.music(host, el_key, style, dur)
+            r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-stream_loop", "-1", "-i", src, "-t", f"{dur:.3f}", "-vn", "-c:a", "aac", "-b:a", "192k", out], capture_output=True, text=True)
+            if r.returncode == 0 and os.path.exists(out):
+                return out, label
+            raise RuntimeError(r.stderr[-120:])
+        except Exception as e:
+            warns.append(f"موسيقى ElevenLabs فشلت ({e}) — جرّبت البديل.")
     if key:
         try:
             return fs_music(host, style, key, dur, out)
@@ -131,8 +141,8 @@ def smart_plan(host, code, duration, words, raw_video, owner, warns):
     nwords = [(_nw(w.get("text")), w) for w in words]
     plan, how, snapped = [], {"t": 0, "word": 0, "scene": 0, "rt": 0}, 0
     for e in entries:
-        kind, fname = _str(e, "kind"), _str(e, "file")
-        if not (kind or fname):
+        kind, fname, prompt = _str(e, "kind"), _str(e, "file"), _str(e, "sfx")
+        if not (kind or fname or prompt):
             continue
         t, via = _num(e, "t"), "t"
         if t is None and _num(e, "rt") is not None:
@@ -171,6 +181,10 @@ def smart_plan(host, code, duration, words, raw_video, owner, warns):
                 warns.append(f"الملف «{fn}» غير متاح حالياً.")
                 continue
             item["file"] = p; item["kind"] = "custom"
+        elif prompt:
+            item["prompt"] = prompt[:200]; item["kind"] = kind or "whoosh"
+            try: item["dur"] = _num(e, "dur")
+            except Exception: pass
         else:
             item["kind"] = kind
         how[via] += 1
@@ -262,14 +276,16 @@ def finish(host, jid, d, J, raw, final, duration, voice, segments):
     """full audio stage. Returns (used_sfx, warnings, report)"""
     warns, used = [], []
     plat = getattr(host, "PLATFORM", None)
+    el_key = (plat.setting("elevenlabs_key") if plat else "") or ""
     key = ((plat.setting("freesound_key") if plat else "") or (d.get("sfx") or {}).get("key") or "").strip()
     sc, mc = d.get("sfx") or {}, d.get("music") or {}
     sfx, rep = [], {"sfx": None, "music": None}
     if sc.get("enabled"):
         J.update(stage="تجهيز المؤثرات الصوتية", progress=92)
         plan, src = build_plan(host, d, raw, duration, segments, warns, J.get("owner", ""))
-        fs_n = loc_n = 0
+        fs_n = loc_n = el_n = 0
         reasons = set()
+        el_fail = []
         for i, it in enumerate(plan[:80]):
             if it["t"] >= duration:
                 continue
@@ -277,8 +293,19 @@ def finish(host, jid, d, J, raw, final, duration, voice, segments):
                 sfx.append((it["file"], it["t"], SFX_VOL * it.get("vol", 1.0)))
                 used.append({"kind": "custom", "t": it["t"], "source": "ملفك"})
                 continue
-            path, source = host.get_sfx(it["kind"], key, i % 4)
-            if source.startswith("Freesound"):
+            path = source = None
+            if el_key:
+                try:
+                    import sa_eleven
+                    kp = sa_eleven.KIND_PROMPTS.get(it["kind"]) or sa_eleven.KIND_PROMPTS["whoosh"]
+                    path, source = sa_eleven.sfx(host, el_key, it.get("prompt") or kp[0], it.get("dur") or (None if it.get("prompt") else kp[1]))
+                except Exception as e:
+                    if str(e)[:90] not in el_fail: el_fail.append(str(e)[:90])
+            if not path:
+                path, source = host.get_sfx(it["kind"], key, i % 4)
+            if source.startswith("ElevenLabs"):
+                el_n += 1
+            elif source.startswith("Freesound"):
                 fs_n += 1
             else:
                 loc_n += 1
@@ -286,19 +313,25 @@ def finish(host, jid, d, J, raw, final, duration, voice, segments):
                 if key and m: reasons.add(m.group(1)[:90])
             sfx.append((path, it["t"], SFX_VOL * it.get("vol", 1.0)))
             used.append({"kind": it["kind"], "t": it["t"], "source": source})
-        rep["sfx"] = {"plan": src, "count": len(sfx), "freesound": fs_n, "local": loc_n}
+        rep["sfx"] = {"plan": src, "count": len(sfx), "elevenlabs": el_n, "freesound": fs_n, "local": loc_n}
         if src.startswith("الكود"): rep["sync"] = src[6:]
         if not sfx:
             warns.append("المؤثرات مفعّلة لكن لم تُوجد مواضع مناسبة لها.")
-        if key and loc_n and not fs_n:
+        if el_key and el_fail:
+            warns.append("ElevenLabs لم يولّد بعض المؤثرات: " + "؛ ".join(el_fail) + (" — استُخدم البديل." if (fs_n or loc_n) else ""))
+        if el_key and not el_n and not el_fail and sfx:
+            pass
+        if (el_n and not (fs_n or loc_n)):
+            pass
+        elif key and loc_n and not fs_n and not el_n:
             warns.append("تعذّر جلب أي مؤثر من Freesound فاستُخدمت مؤثرات محلية: " + "؛ ".join(sorted(reasons)))
-        elif not key and sfx:
-            warns.append("لم يُضبط مفتاح Freesound في لوحة الأدمن، استُخدمت مؤثرات مولّدة محلياً.")
+        elif not key and not el_key and sfx:
+            warns.append("لا يوجد مفتاح ElevenLabs أو Freesound: أضف مفتاح ElevenLabs من «مفاتيحي الخاصة» لتوليد مؤثرات حقيقية. استُخدمت مؤثرات مولّدة محلياً.")
     music = None
     if mc.get("enabled"):
         J.update(stage="تجهيز الموسيقى الخلفية", progress=94)
         try:
-            music, msrc = get_music(host, mc.get("style") or "chill", key, duration, jid, warns)
+            music, msrc = get_music(host, mc.get("style") or "chill", key, duration, jid, warns, el_key)
             rep["music"] = {"source": msrc, "style": mc.get("style") or "chill"}
         except Exception as e:
             warns.append(f"فشل توليد الموسيقى: {e}")

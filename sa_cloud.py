@@ -93,7 +93,7 @@ class GH:
             if r.status_code >= 500 and i < tries - 1:
                 time.sleep(1.5 * (i + 1)); continue
             return r
-        raise RuntimeError(f"تعذر الاتصال بـ GitHub: {last}")
+        raise RuntimeError(f"تعذر الاتصال بـ السحابة: {last}")
 
     def get(self, path, params=None):
         """conditional GET: unchanged resources answer 304 and cost nothing against the rate limit"""
@@ -120,7 +120,7 @@ def release_id(gh):
     if r.status_code == 422:
         st, j = gh.get(f"/repos/{h.GH_REPO}/releases/tags/media")
         if st == 200: return j["id"]
-    if r.status_code >= 300: raise RuntimeError(f"تعذر تجهيز مخزن الملفات على GitHub ({r.status_code}): {r.text[:200]}")
+    if r.status_code >= 300: raise RuntimeError(f"تعذر تجهيز مخزن الملفات على السحابة ({r.status_code}): {r.text[:200]}")
     return r.json()["id"]
 
 
@@ -159,7 +159,7 @@ def upload(gh, rid, path, name):
         except requests.RequestException as e:
             last = str(e)
         time.sleep(2 * (i + 1))
-    raise RuntimeError(f"فشل رفع {name} إلى GitHub ({last})")
+    raise RuntimeError(f"فشل رفع {name} إلى السحابة ({last})")
 
 
 _BASE_REMOTION = {"@remotion/cli", "@remotion/bundler", "@remotion/renderer", "@remotion/google-fonts", "@remotion/transitions"}
@@ -189,7 +189,7 @@ def fail_text(gh, run, jobs):
                 parts.append("\n".join(lines[-25:])[-2500:])
         except Exception:
             pass
-    parts.append("السجلات الكاملة: " + str(run.get("html_url", "")))
+    parts.append("")
     return "\n".join(parts)
 
 
@@ -227,7 +227,7 @@ def render(host, jid, d, J, props, mfile, mtype, out):
     assets, tmp, art_ids = [], [], []
     held = 0
     try:
-        J.update(stage="رفع الملفات إلى GitHub", progress=2, details="")
+        J.update(stage="رفع الملفات إلى السحابة", progress=2, details="")
         rid = release_id(gh)
         sweep(gh, rid)
         media = None
@@ -254,11 +254,11 @@ def render(host, jid, d, J, props, mfile, mtype, out):
         inputs = {"job_id": jid, "job_url": job_url, "frames": str(frames), "duration": f"{duration:.3f}", "fps": str(fps),
                   "width": str(cfg["width"]), "height": str(cfg["height"]), "crf": str(cfg["crf"]), "preset": str(cfg["preset"]), "chunks": str(chunks),
                   "audio": "true" if carries else "false", "merge": "false"}
-        J.update(stage="إطلاق الرندر على أجهزة GitHub", progress=4, details=f"{chunks} أجهزة")
+        J.update(stage="إطلاق الرندر على أجهزة السحابة", progress=4, details=f"{chunks} أجهزة")
         r = gh.req("POST", f"/repos/{repo}/actions/workflows/{host.GH_WORKFLOW}/dispatches", json={"ref": host.GH_REF, "inputs": inputs})
         if r.status_code != 204:
-            hint = " (تأكد أن ملف .github/workflows/render.yml مرفوع وأن صلاحية التوكن workflow)" if r.status_code in (403, 404) else ""
-            raise RuntimeError(f"رفض GitHub إطلاق المهمة ({r.status_code}): {r.text[:300]}{hint}")
+            hint = " (تعذّر تشغيل الرندر السحابي — أبلغ الأدمن)" if r.status_code in (403, 404) else ""
+            raise RuntimeError(f"رفض السحابة إطلاق المهمة ({r.status_code}): {r.text[:300]}{hint}")
 
         run = None
         for _ in range(45):
@@ -268,8 +268,8 @@ def render(host, jid, d, J, props, mfile, mtype, out):
                 run = next((x for x in j.get("workflow_runs", []) if jid in (x.get("display_title") or "")), None)
                 if run: break
             time.sleep(2)
-        if not run: raise RuntimeError("لم أجد تشغيل الـ workflow على GitHub. راجع تبويب Actions في المستودع.")
-        run_id = run["id"]; J["run_url"] = run.get("html_url")
+        if not run: raise RuntimeError("تعذّر بدء الرندر السريع، أعد المحاولة بعد قليل.")
+        run_id = run["id"]; J["_run_url"] = run.get("html_url")
 
         t0 = time.time(); stall_since = None; jobs = []
         while True:
@@ -289,13 +289,13 @@ def render(host, jid, d, J, props, mfile, mtype, out):
                 if st_r == 200: run = rj_
                 if st_r != 200 and st_j != 200:
                     stall_since = stall_since or time.time()
-                    J.update(stage="GitHub لا يرد مؤقتاً", details=f"HTTP {st_r}/{st_j} · أعيد المحاولة")
-                    if time.time() - stall_since > 180: raise RuntimeError(f"GitHub لا يستجيب (HTTP {st_r}). راجع: {run.get('html_url', '')}")
+                    J.update(stage="السحابة لا يرد مؤقتاً", details=f"HTTP {st_r}/{st_j} · أعيد المحاولة")
+                    if time.time() - stall_since > 180: raise RuntimeError(f"السحابة لا يستجيب (HTTP {st_r}). راجع: {run.get('html_url', '')}")
                     time.sleep(8); continue
                 stall_since = None
             except RateLimited as e:
-                J.update(stage="حد طلبات GitHub — انتظار ثم أكمل", details=f"{e.wait}ث · الرندر مستمر على GitHub ولن يضيع")
-                if e.wait > 1500: raise RuntimeError(f"استنفدت حد طلبات GitHub لساعة. الرندر ما زال يعمل هنا: {run.get('html_url', '')} — أعد المحاولة بعد {e.wait // 60} دقيقة.")
+                J.update(stage="حد طلبات السحابة — انتظار ثم أكمل", details=f"{e.wait}ث · الرندر مستمر على السحابة ولن يضيع")
+                if e.wait > 1500: raise RuntimeError(f"استنفدت حد طلبات السحابة لساعة. الرندر ما زال يعمل هنا: {run.get('html_url', '')} — أعد المحاولة بعد {e.wait // 60} دقيقة.")
                 time.sleep(min(e.wait, 60)); continue
             if run.get("status") == "completed":
                 if run.get("conclusion") != "success":
@@ -310,7 +310,7 @@ def render(host, jid, d, J, props, mfile, mtype, out):
             elif plan and plan.get("status") == "completed":
                 J.update(stage="تجهيز الأجهزة", progress=8, details=f"{el}ث")
             else:
-                J.update(stage="بانتظار جهاز من GitHub", progress=5, details=f"{el}ث")
+                J.update(stage="بانتظار جهاز من السحابة", progress=5, details=f"{el}ث")
             time.sleep(5)
 
         J.update(stage="تنزيل الأجزاء ودمجها", progress=90, details="")

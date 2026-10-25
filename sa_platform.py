@@ -32,7 +32,7 @@ DEFAULT_PLANS = {
 DEFAULT_SETTINGS = {"site_name": "SA Motion Studio", "public_url": "", "maintenance": False, "maintenance_msg": "الموقع تحت الصيانة، عُد بعد قليل.",
                     "max_cloud": 12, "cloud_slots": 15, "sec_per_machine": 10, "default_plan": "pro", "welcome": "", "share_kicks": 6}
 USER_KEYS = ("freesound_key", "groq_key", "elevenlabs_key", "minimax_key", "openai_key")
-USER_KEY_UI = ("freesound_key", "groq_key")
+USER_KEY_UI = ("elevenlabs_key", "freesound_key", "groq_key")
 SECRET_KEYS = ["freesound_key", "elevenlabs_key", "minimax_key", "openai_key", "groq_key"]
 PLAIN_KEYS = ["minimax_group", "minimax_base", "openai_base", "openai_model", "tts_default", "minimax_model", "elevenlabs_model"]
 
@@ -807,8 +807,20 @@ def register(app):
     def api_mykeys():
         uid = P.uid()
         cur = dict(P.db.get("state", "keys:" + uid) or {})
+        check = None
         if request.method == "PUT":
             d = request.get_json(silent=True) or {}
+            ev = (d.get("elevenlabs_key") or "").strip() if isinstance(d.get("elevenlabs_key"), str) else ""
+            if ev and ev != "-":  # refuse to store a key ElevenLabs does not recognise (it would silently override the site key)
+                if P.rate(f"keyput:{uid}", 10, 60):
+                    return jerr("تمهّل قليلاً", 429)
+                try:
+                    import sa_eleven
+                    pr0 = sa_eleven.probe(ev)
+                    if not pr0["valid"] and not any("تعذّر الاتصال" in n for n in pr0["notes"]):
+                        return jerr(sa_eleven.summary(pr0) + " — لم يُحفظ. تأكد من نسخ المفتاح كاملاً من ElevenLabs.", 400)
+                except Exception:
+                    pass
             for k in USER_KEY_UI:
                 if k in d and isinstance(d[k], str):
                     v = d[k].strip()
@@ -820,13 +832,22 @@ def register(app):
                         return jerr("صيغة المفتاح غير صحيحة (أحرف وأرقام وشرطات فقط).", 400)
             P.db.put("state", "keys:" + uid, cur)
             P.audit("mykeys", uid, "", ",".join(sorted(cur)), P.ip())
+            check = None
+            if d.get("elevenlabs_key"):  # validate immediately so the subscriber knows if the key was recognised
+                try:
+                    import sa_eleven
+                    pr = sa_eleven.probe(cur.get("elevenlabs_key", ""))
+                    check = {"ok": pr["valid"], "msg": sa_eleven.summary(pr), "caps": pr["caps"]}
+                except Exception as e:
+                    check = {"ok": False, "msg": "تعذّر فحص المفتاح: " + str(e)[:100]}
         site = P.settings()
-        return jsonify({"keys": {k: {"set": bool(cur.get(k)), "tail": (cur.get(k) or "")[-4:]} for k in USER_KEY_UI},
+        return jsonify({"check": check if request.method == "PUT" else None,
+                        "keys": {k: {"set": bool(cur.get(k)), "tail": (cur.get(k) or "")[-4:]} for k in USER_KEY_UI},
                         "platform": {k.replace("_key", ""): bool(site.get(k)) for k in USER_KEY_UI}})
 
     @app.route("/api/mykeys/test/<prov>", methods=["POST"])
     def api_mykeys_test(prov):
-        if prov not in ("freesound", "groq"):
+        if prov not in ("elevenlabs", "freesound", "groq"):
             return jerr("bad", 400)
         if P.rate(f"keytest:{P.uid()}", 12, 60):
             return jerr("تمهّل قليلاً", 429)
@@ -834,7 +855,7 @@ def register(app):
         try:
             return jsonify(sa_tts.test_provider(P, prov))
         except Exception as e:
-            return jsonify({"ok": False, "msg": str(e)[:160]})
+            return jsonify({"ok": False, "msg": re.sub(r"(token|key|api_key)=[^&\s)']+", r"\1=***", str(e))[:160]})
 
     @app.route("/api/me")
     def api_me():

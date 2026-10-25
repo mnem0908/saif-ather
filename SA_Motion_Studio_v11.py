@@ -299,7 +299,7 @@ textarea.code{background:#fffdfb;color:#3b2a22}.edbar{background:#fff}
 .mdl .kr label{display:flex;justify-content:space-between;font-size:12px;color:var(--t2);margin-bottom:5px}.mdl .kr .st{font-size:11px}
 @media (max-width:900px){.top{padding:0 12px;height:56px}.brand{font-size:15px}.brand img{width:30px;height:30px}.status #stxt{display:none}.status{padding:8px}.iconbtn.acc .nm2{display:none}.iconbtn.acc{padding:8px 10px}.menu{left:-6px;min-width:215px}}
 </style></head><body>
-<div class="top"><div class="brand"><img src="/icon.svg" alt=""><span class="bn">SA Motion Studio</span><small>v11</small></div>
+<div class="top"><div class="brand"><img src="/icon.svg" alt=""><span class="bn">SA Motion Studio</span></div>
 <div class="tright"><div class="status"><span class="dot" id="dot"></span><span id="stxt">جاهز</span></div>
 <div class="menuwrap"><button class="iconbtn acc" id="menuBtn" type="button" aria-label="القائمة"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg><span class="nm2" id="acctN">حسابي</span><svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M6 9l6 6 6-6"/></svg></button>
 <div class="menu" id="menu"><div class="mhead" id="acct"></div>
@@ -309,8 +309,11 @@ textarea.code{background:#fffdfb;color:#3b2a22}.edbar{background:#fff}
 <a class="mi2" id="adminBtn" href="/admin" style="display:none"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>لوحة الإدارة</a>
 <a class="mi2 dg" href="/logout"><svg class="ic" viewBox="0 0 24 24"><path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9"/></svg>تسجيل الخروج</a></div></div></div></div>
 <div class="mdl" id="keysMdl"><div class="bx"><h2>🔑 مفاتيحي الخاصة</h2><div class="sub">أضف مفاتيحك الشخصية لتُستخدم بدل مفاتيح الموقع في حسابك فقط. تُحفظ مشفّرة ولا تظهر لأحد.</div>
-<div class="kr"><label><span>Freesound (مؤثرات وموسيقى)</span><span class="st" id="kf_st"></span></label><input class="in" id="kf" dir="ltr" type="password" autocomplete="off" placeholder="الصق API Key"></div>
-<div class="kr"><label><span>Groq (تفريغ سريع ودقيق)</span><span class="st" id="kg_st"></span></label><input class="in" id="kg" dir="ltr" type="password" autocomplete="off" placeholder="gsk_..."></div>
+<div class="kr"><label><span>ElevenLabs — المفتاح الرئيسي (مؤثرات · موسيقى · تفريغ · نطق)</span><span class="st" id="ke_st"></span></label><input class="in" id="ke" dir="ltr" type="password" autocomplete="off" placeholder="sk_..."></div>
+<div class="hint" style="margin:-4px 0 8px">من ElevenLabs ← Developers ← API Keys. فعّل الصلاحيات: Sound Effects، Music، Speech to Text، Text to Speech (اختياريًا Voices وUser read لعرض الرصيد).</div>
+<details class="kr"><summary style="cursor:pointer;color:var(--t3);font-size:12px">مفاتيح اختيارية بديلة</summary>
+<label style="margin-top:8px"><span>Freesound (بديل المؤثرات)</span><span class="st" id="kf_st"></span></label><input class="in" id="kf" dir="ltr" type="password" autocomplete="off" placeholder="الصق API Key">
+<label style="margin-top:8px"><span>Groq (بديل التفريغ)</span><span class="st" id="kg_st"></span></label><input class="in" id="kg" dir="ltr" type="password" autocomplete="off" placeholder="gsk_..."></div></details>
 <div class="hint" id="kmsg"></div>
 <div class="row" style="margin-top:12px"><button class="btn b1" id="kSave" type="button" style="margin:0">حفظ</button><button class="btn b2" id="kTest" type="button" style="margin:0">اختبار المحفوظ</button><button class="btn b2" id="kClose" type="button" style="margin:0">إغلاق</button></div></div></div>
 <div class="app">
@@ -329,7 +332,7 @@ textarea.code{background:#fffdfb;color:#3b2a22}.edbar{background:#fff}
   <div class="drop" id="drop"><b>اضغط أو اسحب الملف</b>MP3 · WAV · M4A · MP4 · MOV · WEBM</div><input type="file" id="file" accept="audio/*,video/*" hidden>
   <div class="hint" id="minfo"></div><div class="lib" id="lib"></div>
   <div class="switch">دمج صوت الملف تلقائياً<div class="tg on" id="voiceTg"></div></div>
-  <div class="switch">رندر سحابي موزّع (GitHub)<div class="tg on" id="cloudTg"></div></div>
+  <div class="switch">رندر سريع موزّع<div class="tg on" id="cloudTg"></div></div>
   <div class="row"><select class="in" id="lang"><option value="">كشف تلقائي</option><option value="ar">عربي</option><option value="en">English</option></select>
   <select class="in" id="model"><option value="small">سريع</option><option value="medium" selected>دقيق</option><option value="large-v3">الأدق</option></select></div>
   <label class="l">كلمات في السطر <span id="mwv">3</span></label><input type="range" id="mw" min="1" max="8" value="3">
@@ -500,6 +503,7 @@ $('srtBtn').onclick=()=>{const f=t=>{const ms=Math.max(0,Math.round(t*1000)),p=(
  a.href=URL.createObjectURL(new Blob(['\ufeff'+txt],{type:'text/plain;charset=utf-8'}));a.download='captions.srt';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000)};
 function busy(on){$('renderBtn').disabled=on;$('stillBtn').disabled=on}
 async function runJob(mode){if(S.job||S.starting)return;if(!code.value.trim())return log('الكود فارغ','e');save();
+ if(mode==='video'&&!S.media&&/mediaSrc|videoSrc|mediaUrl|segments|Captions|Kinetic/.test(code.value)&&!confirm('لم تختر ملفاً (فيديو/صوت) بينما التصميم يعتمد عليه، وقد يخرج الفيديو أسود/فارغاً.\nهل تريد المتابعة؟'))return;
  if(mode==='video'&&S.media&&!S.segments.length&&hasF('transcribe')&&/segments|Captions|Kinetic|words/.test(code.value)){S.starting=true;busy(true);log('لا يوجد تفريغ للصوت — سأفرّغه تلقائياً قبل الرندر لتظهر الترجمة','h');try{await doTranscribe()}catch(e){}S.starting=false;busy(false)}
  const fps=getFps(),dur=getDur(),frames=totalFrames(),[crf,preset]=$('q').value.split('|');
  const w=clamp(Math.round(num($('w').value,1080)),64,4096),h=clamp(Math.round(num($('h').value,1920)),64,4096);
@@ -526,7 +530,7 @@ $('cleanBtn').onclick=async()=>{if(!confirm('تنظيف الملفات المؤ�
  status('تنظيف',1);try{const r=await (await postJ('/api/cleanup',{media:wipe})).json();log(`تم التنظيف: تحرير ${r.freed_mb}MB · ${r.removed} عنصر`,'s');if(wipe)clearMedia();refreshLib()}catch(e){log('فشل التنظيف: '+e.message,'e')}status('جاهز')};
 $('diagBtn').onclick=async()=>{status('فحص النظام',1);
  try{const d=await (await api('/api/diag')).json();
-  log(`النظام: v${d.version} · Node ${d.node} · ${d.ffmpeg}`,'h');
+  
   log(`Remotion ${d.remotion} · React ${d.react}/${d.react_dom} · esbuild ${d.esbuild} · Chrome: ${d.chrome?'جاهز':'غير مثبت'}`,d.chrome?'s':'e');
   log(`Whisper: ${d.whisper?'جاهز':'غير مثبت'} · GPU: ${d.gpu?'نعم':'لا'} · CPU: ${d.cpus} · القرص الحر: ${d.disk_free_gb}GB · ملفات: ${d.media}`,d.whisper?'s':'e')}
  catch(e){log('فشل فحص النظام: '+e.message,'e')}status('جاهز')};
@@ -543,15 +547,15 @@ function applyMe(){const m=ME;if(!m)return;const ac=$('acct');ac.style.display='
  $('musicOpts').style.display=$('musicTg').classList.contains('on')?'block':'none'}
 api('/api/me').then(r=>r.json()).then(m=>{ME=m;applyMe();if(m.status==='active'&&m.days_left!=null&&m.days_left<=3&&m.role!=='admin')log(`⏳ ينتهي اشتراكك خلال ${m.days_left} يوم — تواصل مع المدير للتجديد`,'h')}).catch(()=>{});
 
-async function loadKeys(){try{const r=await (await api('/api/mykeys')).json();[['kf','freesound_key','kf_st'],['kg','groq_key','kg_st']].forEach(([i,k,st])=>{$(i).value='';$(st).innerHTML=r.keys[k].set?'<span style="color:var(--ok)">مفتاحك محفوظ ••••'+esc(r.keys[k].tail)+'</span>':(r.platform[k.replace('_key','')]?'<span style="color:var(--t3)">يُستخدم مفتاح الموقع</span>':'<span style="color:var(--warn)">غير مضبوط</span>');$(i).placeholder=r.keys[k].set?'اتركه فارغاً للإبقاء · اكتب - للحذف':'الصق المفتاح'})}catch(e){}}
+async function loadKeys(){try{const r=await (await api('/api/mykeys')).json();[['ke','elevenlabs_key','ke_st'],['kf','freesound_key','kf_st'],['kg','groq_key','kg_st']].forEach(([i,k,st])=>{$(i).value='';$(st).innerHTML=r.keys[k].set?'<span style="color:var(--ok)">مفتاحك محفوظ ••••'+esc(r.keys[k].tail)+'</span>':(r.platform[k.replace('_key','')]?'<span style="color:var(--t3)">يُستخدم مفتاح الموقع</span>':'<span style="color:var(--warn)">غير مضبوط</span>');$(i).placeholder=r.keys[k].set?'اتركه فارغاً للإبقاء · اكتب - للحذف':'الصق المفتاح'})}catch(e){}}
 $('keysBtn').onclick=()=>{$('menu').classList.remove('on');$('kmsg').textContent='';$('keysMdl').classList.add('on');loadKeys()};
 $('kClose').onclick=()=>$('keysMdl').classList.remove('on');$('keysMdl').onclick=e=>{if(e.target===$('keysMdl'))$('keysMdl').classList.remove('on')};
-$('kSave').onclick=async()=>{const b={};[['kf','freesound_key'],['kg','groq_key']].forEach(([i,k])=>{const v=$(i).value.trim();if(v)b[k]=v==='-'?'':v});if(!Object.keys(b).length){$('kmsg').textContent='لم تُدخل شيئاً';return}
- try{await (await fetch('/api/mykeys',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).json();$('kmsg').textContent='تم الحفظ ✓';loadKeys()}catch(e){$('kmsg').textContent='فشل الحفظ'}};
-$('kTest').onclick=async()=>{$('kmsg').textContent='جارٍ الاختبار...';let out=[];for(const p of ['freesound','groq']){try{const r=await (await fetch('/api/mykeys/test/'+p,{method:'POST'})).json();out.push((r.ok?'✓ ':'✗ ')+(r.msg||''))}catch(e){out.push('✗ '+p)}}$('kmsg').innerHTML=out.map(esc).join('<br>')};
+$('kSave').onclick=async()=>{const b={};[['ke','elevenlabs_key'],['kf','freesound_key'],['kg','groq_key']].forEach(([i,k])=>{const v=$(i).value.trim();if(v)b[k]=v==='-'?'':v});if(!Object.keys(b).length){$('kmsg').textContent='لم تُدخل شيئاً';return}
+ $('kmsg').textContent='جارٍ الحفظ والتحقق من المفتاح...';try{const R=await fetch('/api/mykeys',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const j=await R.json();if(!R.ok){$('kmsg').textContent=(j.error||j.msg||'✗ فشل الحفظ');return}$('kmsg').innerHTML='تم الحفظ ✓'+(j.check?'<br><span style="color:var('+(j.check.ok?'--ok':'--warn')+')">'+esc(j.check.msg)+'</span>':'');loadKeys()}catch(e){$('kmsg').textContent='فشل الحفظ'}};
+$('kTest').onclick=async()=>{$('kmsg').textContent='جارٍ الاختبار...';let out=[];for(const p of ['elevenlabs','freesound','groq']){try{const r=await (await fetch('/api/mykeys/test/'+p,{method:'POST'})).json();if(p!=='elevenlabs'&&!r.ok&&/غير مضبوط/.test(r.msg||''))continue;out.push((r.ok&&p!=='elevenlabs'?'✓ ':'')+(r.msg||''))}catch(e){out.push('✗ '+p)}}$('kmsg').innerHTML=out.map(esc).join('<br>')};
 $('menuBtn').onclick=e=>{e.stopPropagation();$('menu').classList.toggle('on')};document.addEventListener('click',e=>{if(!e.target.closest('.menuwrap'))$('menu').classList.remove('on')});
 loadCfg();$('mwv').textContent=$('mw').value;$('thv').textContent=$('th').value+'dB';$('msv').textContent=(+$('msil').value).toFixed(2)+'ث';markPreset();syncTime();
-api('/api/health').then(r=>r.json()).then(h=>{S.gpu=!!h.gpu;if(h.cloud)log('☁️ الرندر السحابي مفعّل: '+h.repo,'s');else $('cloudTg').parentElement.style.display='none';log(`الاستوديو جاهز · Remotion ${h.remotion} · GPU: ${h.gpu?'نعم':'لا'} · CPU: ${h.cpus}`,'s');if(!h.gpu&&!lsGet('sa_cfg'))$('model').value='small';syncTime()}).catch(e=>log(e.message,'e'));
+api('/api/health').then(r=>r.json()).then(h=>{S.gpu=!!h.gpu;if(h.cloud)log('☁️ الرندر السريع مفعّل','s');else $('cloudTg').parentElement.style.display='none';log('الاستوديو جاهز','s');if(!h.gpu&&!lsGet('sa_cfg'))$('model').value='small';syncTime()}).catch(e=>log(e.message,'e'));
 refreshLib().then(L=>{const last=lsGet('sa_media');const m=last&&L.find(x=>x.file===last);if(m)useMedia(m,false)});
 </script></body></html>
 '''
@@ -1323,7 +1327,7 @@ def home():
 @app.route("/icon.svg")
 def icon(): return send_from_directory(f"{W}/public", "icon.svg")
 @app.route("/api/health")
-def health(): return jsonify({"ok": True, "gpu": GPU, "cpus": os.cpu_count(), "remotion": RV, "version": VERSION, "cloud": cloud_enabled(), "repo": GH_REPO if cloud_enabled() else "", "running": sum(1 for j in list(JOBS.values()) if j.get("status") == "processing")})
+def health(): return jsonify({"ok": True, "gpu": GPU, "cpus": os.cpu_count(), "remotion": RV, "cloud": cloud_enabled(), "running": sum(1 for j in list(JOBS.values()) if j.get("status") == "processing")})
 @app.route("/api/template/<name>")
 def tpl(name):
     if name not in ("showcase", "captions", "videoedit", "voiceover"): abort(404)
@@ -1637,7 +1641,15 @@ def _transcribe_task(jid, path, lang, model_name, mw, name):
     try:
         words, language, dev = None, None, "CPU"
         try:
-            _g = sa_tts.groq_words(PLATFORM, path, lang) if PLATFORM else None
+            _ek = PLATFORM.setting("elevenlabs_key") if PLATFORM else ""
+            if _ek and os.path.getsize(path) < 900*1024*1024:
+                import sa_eleven
+                JOBS[jid].update(stage="تفريغ (ElevenLabs Scribe)", progress=10)
+                _w, _l = sa_eleven.stt_words(_ek, path, lang)
+                if _w: words, language, dev = _w, _l, "ElevenLabs"
+        except Exception as e: print("ElevenLabs ASR failed:", e, flush=True); JOBS[jid]["note"] = "ElevenLabs: " + str(e)[:100]
+        try:
+            _g = sa_tts.groq_words(PLATFORM, path, lang) if (PLATFORM and words is None) else None
             if _g and _g[0]: words, language = _g; dev = "Groq"
         except Exception as e: print("Groq ASR failed:", e, flush=True)
         if GPU and words is None:
@@ -1803,6 +1815,38 @@ def code_has_audio(code):
         if not re.search(r"\bmuted\b", tag): return True
     return False
 
+
+def black_check(path, duration):
+    """sample ~8 frames: (mean luma 0-255, brightest pixel) — None when it cannot be measured"""
+    try:
+        fps = max(0.05, min(2.0, 8.0 / max(duration, 1.0)))
+        r = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-vf", f"fps={fps:.4f},scale=160:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-", "-an", "-f", "null", "-"],
+                           capture_output=True, text=True, timeout=120)
+        v = [float(x) for x in re.findall(r"YAVG=([\d.]+)", r.stdout)]
+        return (sum(v) / len(v), max(v)) if v else None
+    except Exception:
+        return None
+
+def black_warning(final, duration, mfile, mtype, code, segs, rec):
+    m = black_check(final, duration)
+    if not m or m[1] > 22:
+        return None
+    why = []
+    if not mfile and MEDIA_USE.search(code or ""):
+        why.append("الكود يعرض ملفاً لكنك لم تختر ملفاً في الاستوديو (اختر ملفاً من المكتبة قبل الرندر)")
+    if mfile and mtype == "video":
+        src = f"{W}/public/{mfile}"
+        sm = black_check(src, min(float(rec.get('duration') or 10), 20)) if os.path.exists(src) else None
+        if sm and sm[1] <= 22:
+            why.append("الفيديو المرفوع نفسه داكن/أسود")
+        elif sm:
+            why.append("الفيديو المرفوع سليم، فالمشكلة في كود التصميم: تأكد أنه يعرض mediaSrc داخل Stage/MediaVideo")
+    if not segs and re.search(r"segments|Captions|Kinetic|words", code or ""):
+        why.append("لا يوجد تفريغ نصي (segments فارغة) فلا يوجد ما يُرسم فوق الخلفية الداكنة؛ اضغط «تفريغ» أو فعّل التفريغ التلقائي")
+    if not why:
+        why.append("الكود يرسم خلفية داكنة فقط؛ راجع الألوان/العناصر أو جرّب معاينة إطار (Still) عند ثانية لاحقة")
+    return "⚠ الفيديو الناتج يبدو أسود (متوسط السطوع %.0f/255). الأسباب المحتملة: " % m[0] + "؛ ".join(why) + "."
+
 def media_warnings(code, mfile, mtype, carries, voice_on):
     w = []
     if not mfile: return w
@@ -1900,6 +1944,8 @@ def render_task(jid, d):
         final = f"{W}/out/{jid}.mp4"
         used, _aw, arep = sa_audio.finish(sys.modules[__name__], jid, d, J, out, final, duration, voice, props["segments"])
         warns += _aw
+        _bw = black_warning(final, duration, mfile, mtype, d.get('code', ''), props['segments'], rec)
+        if _bw: warns.insert(0, _bw)
         if mfile:
             _why = None
             if not voice:

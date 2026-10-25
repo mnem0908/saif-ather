@@ -244,6 +244,12 @@ def list_voices(P, prov):
 
 
 def test_provider(P, prov):
+    if prov == "elevenlabs":
+        import sa_eleven
+        k = P.setting("elevenlabs_key")
+        if not k: return {"ok": False, "msg": "لم تُدخل مفتاح ElevenLabs بعد"}
+        pr = sa_eleven.probe(k)
+        return {"ok": pr["valid"], "msg": sa_eleven.summary(pr), "caps": pr["caps"]}
     if prov == "freesound":
         k = P.setting("freesound_key")
         if not k: return {"ok": False, "msg": "المفتاح غير مضبوط"}
@@ -282,6 +288,15 @@ def groq_words(P, path, lang=""):
 
 
 def asr_timed(host, P, J, wav, lang):
+    try:
+        ek = P.setting("elevenlabs_key")
+        if ek:
+            import sa_eleven
+            w, _ = sa_eleven.stt_words(ek, wav, lang)
+            if w:
+                return [(x["text"], x["start"], x["end"]) for x in w]
+    except Exception as e:
+        print("elevenlabs asr failed:", e, flush=True)
     try:
         g = groq_words(P, wav, lang)
         if g and g[0]:
