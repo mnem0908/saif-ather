@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://seasonal-temp-illustration-arrives.trycloudflare.com
+الرابط الحالي المباشر: https://specializing-clips-students-flooring.trycloudflare.com
 
-آخر تحديث: 2026-10-25 22:33 UTC — تشغيل رقم 40240460695
+آخر تحديث: 2026-10-25 23:04 UTC — تشغيل رقم 40242965419
