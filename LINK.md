@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://reed-jvc-opposition-increasingly.trycloudflare.com
+الرابط الحالي المباشر: https://shape-coleman-paint-readily.trycloudflare.com
 
-آخر تحديث: 2026-10-25 06:24 UTC — تشغيل رقم 40168889049
+آخر تحديث: 2026-10-25 11:45 UTC — تشغيل رقم 40190065834
