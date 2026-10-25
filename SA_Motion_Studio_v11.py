@@ -309,11 +309,11 @@ textarea.code{background:#fffdfb;color:#3b2a22}.edbar{background:#fff}
 <a class="mi2" id="adminBtn" href="/admin" style="display:none"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>لوحة الإدارة</a>
 <a class="mi2 dg" href="/logout"><svg class="ic" viewBox="0 0 24 24"><path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9"/></svg>تسجيل الخروج</a></div></div></div></div>
 <div class="mdl" id="keysMdl"><div class="bx"><h2>🔑 مفاتيحي الخاصة</h2><div class="sub">أضف مفاتيحك الشخصية لتُستخدم بدل مفاتيح الموقع في حسابك فقط. تُحفظ مشفّرة ولا تظهر لأحد.</div>
-<div class="kr"><label><span>ElevenLabs — المفتاح الرئيسي (مؤثرات · موسيقى · تفريغ · نطق)</span><span class="st" id="ke_st"></span></label><input class="in" id="ke" dir="ltr" type="password" autocomplete="off" placeholder="sk_..."></div>
-<div class="hint" style="margin:-4px 0 8px">من ElevenLabs ← Developers ← API Keys. فعّل الصلاحيات: Sound Effects، Music، Speech to Text، Text to Speech (اختياريًا Voices وUser read لعرض الرصيد).</div>
+<div class="kr"><label><span>ElevenLabs — المفتاح الرئيسي</span><span class="st" id="ke_st"></span></label><input class="in" id="ke" dir="ltr" type="password" autocomplete="off" placeholder="sk_..."></div>
+<div class="hint" style="margin:6px 0 8px;line-height:1.9">يخدم المؤثرات والموسيقى والتفريغ والنطق. أنشئه من حسابك في ElevenLabs (قسم API Keys) وفعّل صلاحيات المؤثرات والموسيقى والتفريغ والنطق.</div>
 <details class="kr"><summary style="cursor:pointer;color:var(--t3);font-size:12px">مفاتيح اختيارية بديلة</summary>
 <label style="margin-top:8px"><span>Freesound (بديل المؤثرات)</span><span class="st" id="kf_st"></span></label><input class="in" id="kf" dir="ltr" type="password" autocomplete="off" placeholder="الصق API Key">
-<label style="margin-top:8px"><span>Groq (بديل التفريغ)</span><span class="st" id="kg_st"></span></label><input class="in" id="kg" dir="ltr" type="password" autocomplete="off" placeholder="gsk_..."></div></details>
+<label style="margin-top:8px"><span>Groq (بديل التفريغ)</span><span class="st" id="kg_st"></span></label><input class="in" id="kg" dir="ltr" type="password" autocomplete="off" placeholder="gsk_..."></details>
 <div class="hint" id="kmsg"></div>
 <div class="row" style="margin-top:12px"><button class="btn b1" id="kSave" type="button" style="margin:0">حفظ</button><button class="btn b2" id="kTest" type="button" style="margin:0">اختبار المحفوظ</button><button class="btn b2" id="kClose" type="button" style="margin:0">إغلاق</button></div></div></div>
 <div class="app">
