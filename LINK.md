@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://enclosure-shaft-babies-benefit.trycloudflare.com
+الرابط الحالي المباشر: https://astrology-supported-palace-scenic.trycloudflare.com
 
-آخر تحديث: 2026-10-25 17:05 UTC — تشغيل رقم 40214657956
+آخر تحديث: 2026-10-25 22:25 UTC — تشغيل رقم 40240044348
