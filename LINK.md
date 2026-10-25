@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://intended-halifax-recruitment-frequencies.trycloudflare.com
+الرابط الحالي المباشر: https://reed-jvc-opposition-increasingly.trycloudflare.com
 
-آخر تحديث: 2026-10-25 01:03 UTC — تشغيل رقم 40149051626
+آخر تحديث: 2026-10-25 06:24 UTC — تشغيل رقم 40168889049
