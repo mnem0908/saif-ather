@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://hints-performed-evolution-eminem.trycloudflare.com
+الرابط الحالي المباشر: https://estimated-basics-division-paid.trycloudflare.com
 
-آخر تحديث: 2026-10-26 21:35 UTC — تشغيل رقم 40405400256
+آخر تحديث: 2026-10-26 23:20 UTC — تشغيل رقم 40418930864
