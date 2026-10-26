@@ -397,6 +397,23 @@ class Platform:
                 "features": self.features(u), "quotas": q, "usage": us, "storage_used_mb": round(self.storage_used(u["id"]) / 1e6, 1)}
 
     # ------------------------------------------------------------------ guards used by the studio code
+    def narration_guard(self, d, lines):
+        """code-driven narration (export const NARRATION): feature + daily characters; remembers the plan's max length in d"""
+        u = self.me()
+        if not u:
+            return "يجب تسجيل الدخول", 401
+        feats, q = self.features(u), self.quotas(u)
+        d["_maxsec"] = 900 if u.get("role") == "admin" else int(q.get("max_duration", 60))
+        if u.get("role") == "admin":
+            return None
+        if "tts" not in feats:
+            return "الصوت الناطق من الكود (NARRATION) غير مفعّل في اشتراكك.", 403
+        chars = sum(len(x["text"]) for x in lines)
+        left = q.get("tts_chars_day", 0) - self.usage(u["id"]).get("tts_chars", 0)
+        if chars > max(left, 0):
+            return f"حصة الصوت اليومية المتبقية {max(left, 0)} حرف والنص في الكود {chars} حرفاً.", 429
+        return None
+
     def guard_render(self, d, w, h, fps, frames, mode):
         u = self.me()
         if not u:
@@ -421,6 +438,7 @@ class Platform:
         mu = d.get("music") or {}
         mu["enabled"] = bool(mu.get("enabled")) and "music" in feats
         d["music"] = mu
+        d["_allow"] = {"sfx": "sfx" in feats, "music": "music" in feats}   # server-side only: code-driven SFX/MUSIC may auto-enable just within the plan
         if "cloud" not in feats:
             d["cloud"] = False
         d["owner"] = u["id"]

@@ -167,10 +167,12 @@ def sfx(host, key, text, duration=None):
     return fn, "ElevenLabs"
 
 
-def music(host, key, style, seconds):
+def music(host, key, style, seconds, prompt=None):
     out_len = int(max(3.0, min(120.0, seconds + 2.0)) * 1000)
     out_len = ((out_len + 4999) // 5000) * 5000  # bucket => better cache hits
-    prompt = MUSIC_PROMPTS.get(style) or MUSIC_PROMPTS["chill"]
+    prompt = (prompt or "").strip()[:600] or MUSIC_PROMPTS.get(style) or MUSIC_PROMPTS["chill"]
+    if prompt and "instrumental" not in prompt.lower() and "vocals" not in prompt.lower():
+        prompt += ", instrumental"
     if not available(key):
         raise RuntimeError("ElevenLabs متوقف مؤقتاً: " + DOWN[_kid(key)][1])
     fn = _cache_path(host, "mus", prompt, str(out_len))

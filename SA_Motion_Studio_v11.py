@@ -519,7 +519,7 @@ async function runJob(mode){if(S.job||S.starting)return;if(!code.value.trim())re
   (res.warnings||[]).forEach(w=>log('تنبيه: '+w,'h'));
   if(mode==='still'){const im=$('still');im.src=res.url+'?t='+Date.now();im.style.display='block';$('vid').style.display='none';$('empty').style.display='none';log('اللقطة جاهزة','s')}
   else{const v=$('vid');v.src=res.url+'?t='+Date.now();v.addEventListener('loadeddata',()=>{if(v.paused&&v.currentTime<0.05)v.currentTime=Math.min(0.7,(v.duration||1)/3)},{once:true});v.style.display='block';$('still').style.display='none';$('empty').style.display='none';v.play().catch(()=>{});
-   $('dl').href=res.url+'?dl=1';$('dl').style.display='flex';(res.sfx_used||[]).forEach(s=>log(`مؤثر ${s.kind} @${s.t.toFixed(2)}s ← ${s.source}`,'i'));if(res.audio){const a=res.audio;if(a.sfx)log(`🔊 مؤثرات: ${a.sfx.count} (${a.sfx.plan}) · Freesound ${a.sfx.freesound} · محلي ${a.sfx.local}`,'h');if(a.music)log(`🎵 موسيقى: ${a.music.source}`,'h');if(a.voice)log(a.voice.mixed?'🎤 صوت المقطع الأصلي: مدمج':'🎤 صوت المقطع لم يُدمج: '+a.voice.why,a.voice.mixed?'s':'h');if(a.sync)log('🎯 مزامنة ذكية: '+a.sync,'h');if(a.mean_db!=null)log(`مستوى الصوت النهائي ${a.mean_db} dB`,'i')}
+   $('dl').href=res.url+'?dl=1';$('dl').style.display='flex';(res.sfx_used||[]).forEach(s=>log(`مؤثر ${s.kind} @${s.t.toFixed(2)}s ← ${s.source}`,'i'));if(res.audio){const a=res.audio;if(a.sfx)log(`🔊 مؤثرات: ${a.sfx.count} (${a.sfx.plan}) · ElevenLabs ${a.sfx.elevenlabs||0} · Freesound ${a.sfx.freesound} · محلي ${a.sfx.local}`,'h');if(a.music)log(`🎵 موسيقى: ${a.music.source}${a.music.prompt?' · «'+a.music.prompt.slice(0,50)+'»':''}`,'h');if((a.auto_enabled||[]).length)log('⚙ فُعّلت تلقائياً من الكود: '+a.auto_enabled.join('، '),'i');if(a.voice&&a.voice.narration)log(`🎙 صوت مولّد من الكود (${a.voice.narration.provider}) · ${a.voice.narration.seconds}ث · ${a.voice.narration.words} كلمة — مدمج ومتزامن`,'s');else if(a.voice)log(a.voice.mixed?'🎤 صوت المقطع الأصلي: مدمج':'🎤 صوت المقطع لم يُدمج: '+a.voice.why,a.voice.mixed?'s':'h');if(a.sync)log('🎯 مزامنة ذكية: '+a.sync,'h');if(a.mean_db!=null)log(`مستوى الصوت النهائي ${a.mean_db} dB`,'i')}
    log(`اكتمل في ${((Date.now()-t0)/1000).toFixed(0)}ث · ${res.size_mb}MB`,'s')}
  }catch(e){log(e.message,'e');(e.logs||[]).forEach(l=>log('console: '+l,'e'));if(/MEDIA_MISSING/.test(e.message)){clearMedia();refreshLib()}}
  $('ov').style.display='none';busy(false);status('جاهز');S.job=null;S.starting=false}
@@ -1914,6 +1914,29 @@ def render_task(jid, d):
         carries = code_has_audio(d.get("code", ""))
         warns = media_warnings(d.get("code", ""), mfile, mtype, carries, bool(d.get("voice", True)))
         use_cloud = (mode == "video") and d.get("cloud", True) is not False and cloud_enabled()
+        narr = None
+        _nr = sa_tts.parse_narration(d.get("code", "")) if mode == "video" else None
+        if _nr:
+            J.update(stage="توليد الصوت من الكود", progress=2)
+            narr = sa_tts.narrate(sys.modules[__name__], PLATFORM, J, jid, _nr[0], _nr[1])
+            try: PLATFORM.bump(J.get("owner"), tts_chars=narr["chars"])
+            except Exception: pass
+            _need = narr["end"] + 0.8
+            if _need > duration + 0.01:
+                _cap = float(d.get("_maxsec") or 900)
+                _newd = min(_need, _cap)
+                frames = int(-(-(_newd * fps) // 1)); duration = frames / fps
+                cfg["frames"] = frames
+                if not use_cloud:
+                    with LOCK:
+                        _rt = open(f"{W}/src/Root.tsx", encoding="utf-8").read()
+                        _rt = re.sub(r"durationInFrames=\{\d+\}", "durationInFrames={" + str(frames) + "}", _rt)
+                        open(f"{W}/src/Root.tsx", "w", encoding="utf-8").write(_rt)
+                warns.append(f"مُدّدت مدة الفيديو تلقائياً إلى {duration:.1f} ثانية ليتّسع الصوت المولّد." if _newd >= _need else f"الصوت ({_need:.1f} ث) أطول من أقصى مدة في اشتراكك ({_cap:.0f} ث) فسيُقصّ.")
+            props.update(duration=duration, words=narr["words"], segments=narr["segments"], scenes=narr["scenes"], narration=True)
+            d["words"] = narr["words"]; d["segments"] = narr["segments"]
+            if narr.get("moved"): warns.append("تعذّر وضع بعض الجمل في ثانيتها المطلوبة لأن الجملة السابقة لم تنتهِ: " + "، ".join(f"جملة {a} (طُلب {b} ← {c})" for a, b, c in narr["moved"]))
+            J.update(narration={"provider": narr["provider"], "voice": narr["voice"], "seconds": narr["end"], "native_timing": narr["native"]})
         if use_cloud:
             J.update(cloud=True)
             cloud_render(jid, d, J, props, mfile, mtype, out)
@@ -1941,6 +1964,7 @@ def render_task(jid, d):
             J.update(status="done", progress=100, result={"url": f"/api/still/{jid}", "frame": spec["frame"], "notes": d.get("notes", []), "fixed_code": d.get("fixed_code"), "warnings": warns}); return
         J.update(stage="مزج الصوت والمؤثرات", progress=92, details="")
         voice = f"{W}/public/{mfile}" if (mfile and d.get("voice", True) and rec.get("has_audio", media.get("has_audio", True)) and not carries) else None
+        if narr: voice = narr["path"]
         final = f"{W}/out/{jid}.mp4"
         used, _aw, arep = sa_audio.finish(sys.modules[__name__], jid, d, J, out, final, duration, voice, props["segments"])
         warns += _aw
@@ -1951,6 +1975,7 @@ def render_task(jid, d):
             if not voice:
                 _why = ("«دمج صوت الملف» مُعطّل" if not d.get("voice", True) else ("الملف لا يحتوي مسار صوت" if not rec.get("has_audio", media.get("has_audio", True)) else ("الكود نفسه يشغّل الصوت" if carries else "لم يُدمج")))
             arep["voice"] = {"mixed": bool(voice), "why": _why}
+        if narr: arep["voice"] = {"mixed": True, "why": None, "narration": {"provider": narr["provider"], "voice": narr["voice"], "seconds": narr["end"], "words": len(narr["words"])}}
         J.update(status="done", progress=100, result={"url": f"/api/video/{jid}", "sfx_used": used, "audio": arep, "size_mb": round(os.path.getsize(final) / 1e6, 1),
                                                       "notes": d.get("notes", []), "fixed_code": d.get("fixed_code"), "warnings": warns})
     except Exception as e:
@@ -1961,6 +1986,8 @@ def render_task(jid, d):
             try: os.remove(f)
             except Exception: pass
         if pub: shutil.rmtree(pub, ignore_errors=True)
+        try: os.remove(f"{W}/out/{jid}_narr.wav")
+        except Exception: pass
 
 # ===================== الرندر السحابي (GitHub Actions) — الوحدة sa_cloud =====================
 import sa_cloud
@@ -2001,6 +2028,10 @@ def render():
     except Exception: return "إعدادات غير صالحة", 400
     _g = PLATFORM.guard_render(d, w, h, fps, frames, mode)
     if _g: return _g[0], _g[1]
+    _nar = sa_tts.parse_narration(code) if mode == 'video' else None
+    if _nar:
+        _g = PLATFORM.narration_guard(d, _nar[0])
+        if _g: return _g[0], _g[1]
     fixed, notes, err = repair_code(code)
     if err: return format_err(err, fixed) + "\n\nجرّب زر «فحص وإصلاح» أو أعد تحميل قالب جاهز.", 400
     name, is_def, fixed = pick_component(fixed)

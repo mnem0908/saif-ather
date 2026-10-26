@@ -173,9 +173,10 @@ def synth_edge(text, voice, speed, P):
 def synth_eleven(text, voice, speed, P):
     key = P.setting("elevenlabs_key")
     body = {"text": text, "model_id": P.setting("elevenlabs_model") or "eleven_multilingual_v2", "voice_settings": {"stability": 0.5, "similarity_boost": 0.8, "speed": max(0.7, min(1.2, speed))}}
-    r = requests.post(f"https://api.elevenlabs.io/v1/text-to-speech/{voice}/with-timestamps", params={"output_format": "mp3_44100_128"}, headers={"xi-api-key": key}, json=body, timeout=120)
+    import sa_eleven
+    r = requests.post(f"{sa_eleven.BASE}/v1/text-to-speech/{voice}/with-timestamps", params={"output_format": "mp3_44100_128"}, headers={"xi-api-key": key}, json=body, timeout=120)
     if r.status_code != 200:
-        raise RuntimeError(f"ElevenLabs HTTP {r.status_code}: {r.text[:200]}")
+        raise RuntimeError("ElevenLabs: " + sa_eleven.explain(r))
     j = r.json()
     audio = base64.b64decode(j["audio_base64"])
     al = j.get("alignment") or {}
@@ -232,7 +233,7 @@ def list_voices(P, prov):
         if c and time.time() - c[0] < 600:
             return c[1]
         try:
-            r = requests.get("https://api.elevenlabs.io/v1/voices", headers={"xi-api-key": P.setting("elevenlabs_key")}, timeout=20)
+            r = requests.get(__import__("sa_eleven").BASE + "/v1/voices", headers={"xi-api-key": P.setting("elevenlabs_key")}, timeout=20)
             vs = [(v["voice_id"], v["name"] + (" — " + (v.get("labels") or {}).get("accent", "") if (v.get("labels") or {}).get("accent") else "")) for v in r.json().get("voices", [])]
             if vs:
                 _voice_cache["el"] = (time.time(), vs)
@@ -310,6 +311,132 @@ def asr_timed(host, P, J, wav, lang):
     except Exception as e:
         print("local asr unavailable:", e, flush=True)
         return None
+
+
+# ------------------------------------------------------------------ code-driven narration (export const NARRATION = [...])
+DEFAULT_EDGE = {("ar", "male"): "ar-IQ-BasselNeural", ("ar", "female"): "ar-IQ-RanaNeural", ("en", "male"): "en-US-GuyNeural", ("en", "female"): "en-US-AriaNeural"}
+
+
+def parse_narration(code):
+    """`export const NARRATION = [{ text: "...", t: 0.4, pause: 0.5, voice: "...", speed: 1 }, ...]` -> (lines, opts). Header options come
+    from an optional first object without text: { provider, voice, lang, gender, speed }."""
+    import sa_audio
+    body = sa_audio._scan(code, "NARRATION", "[", "]")
+    if body is None:
+        return None
+    lines, opts = [], {}
+    for o in sa_audio._objects(body):
+        text = sa_audio._str(o, "text")
+        if not text:
+            for k in ("provider", "voice", "lang", "gender"):
+                v = sa_audio._str(o, k)
+                if v: opts[k] = v
+            if sa_audio._num(o, "speed"): opts["speed"] = sa_audio._num(o, "speed")
+            if sa_audio._num(o, "gap") is not None: opts["gap"] = sa_audio._num(o, "gap")
+            continue
+        lines.append({"text": re.sub(r"\s+", " ", text)[:600], "t": sa_audio._num(o, "t"), "pause": sa_audio._num(o, "pause"),
+                      "voice": sa_audio._str(o, "voice"), "speed": sa_audio._num(o, "speed")})
+    return (lines[:60], opts) if lines else None
+
+
+def narration_chars(lines):
+    return sum(len(x["text"]) for x in lines)
+
+
+def _pick_voice(P, prov, want, lang, gender):
+    want = (want or "").strip()
+    if want and re.fullmatch(r"[A-Za-z0-9_.:\-]{1,80}", want) and (prov != "elevenlabs" or len(want) >= 15):
+        return want
+    vs = list_voices(P, prov) or []
+    if want:  # a voice NAME
+        for vid, name in vs:
+            if want.lower() in name.lower():
+                return vid
+    if prov == "edge":
+        return DEFAULT_EDGE.get((lang or "ar", gender or "female")) or DEFAULT_EDGE[("ar", "female")]
+    if prov == "elevenlabs":
+        return (vs or ELEVEN_FALLBACK)[0][0]
+    return {"minimax": "female-shaonv", "openai": "alloy"}.get(prov) or (vs[0][0] if vs else "")
+
+
+def narrate(host, P, J, jid, lines, opts):
+    """Generate the narration described in code. Returns dict(path, words, segments, scenes, end, provider, voice, chars)."""
+    avail = [p["id"] for p in available(P)]
+    prov = opts.get("provider") if opts.get("provider") in avail else None
+    if not prov:
+        prov = next((x for x in ("elevenlabs", "edge", "openai", "minimax") if x in avail), None)
+    if not prov:
+        raise RuntimeError("لا يوجد مزوّد صوت متاح: أضف مفتاح ElevenLabs من «مفاتيحي الخاصة».")
+    lang = (opts.get("lang") or "ar")[:2].lower()
+    base_speed = max(0.7, min(1.25, float(opts.get("speed") or 1.0)))
+    gap = max(0.05, min(2.0, float(opts.get("gap") if opts.get("gap") is not None else 0.35)))
+    work = f"{host.W}/uploads/{jid}_narr"
+    os.makedirs(work, exist_ok=True)
+    try:
+        parts, scenes, words, cursor, any_native = [], [], [], 0.0, False
+        moved = []
+        n = len(lines)
+        for i, ln in enumerate(lines):
+            J.update(stage=f"توليد الصوت {i + 1}/{n} ({prov})", progress=3 + int(12 * i / max(1, n)))
+            if J.get("cancelled"):
+                raise RuntimeError("تم الإلغاء")
+            voice = _pick_voice(P, prov, ln.get("voice") or opts.get("voice"), lang, opts.get("gender"))
+            audio, timed = SYNTH[prov](ln["text"], voice, max(0.7, min(1.25, ln.get("speed") or base_speed)), P)
+            raw = f"{work}/s{i}.mp3"; open(raw, "wb").write(audio)
+            wav = f"{work}/s{i}.wav"
+            ffmpeg(["-i", raw, "-ar", "48000", "-ac", "1", wav])
+            total = dur_of(wav)
+            w0, w1 = speech_window(wav, total)
+            want = ln.get("t")
+            if i == 0 and want is None:
+                want = 0.4
+            if want is not None and want > cursor + 0.01:  # exact placement: pad silence up to t
+                sil = f"{work}/p{i}.wav"
+                ffmpeg(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", f"{want - cursor:.3f}", sil]); parts.append(sil)
+                cursor = want
+            elif want is not None and want < cursor - 0.01:
+                moved.append((i + 1, round(want, 2), round(cursor, 2)))
+            toks = ln["text"].split()
+            if timed:
+                any_native = True
+            pairs = align_tokens(toks, timed, w0, w1)
+            for t, (a, b) in zip(toks, pairs):
+                words.append({"text": t, "start": round(cursor + a, 3), "end": round(cursor + b, 3)})
+            scenes.append({"text": ln["text"], "start": round(cursor + w0, 3), "end": round(cursor + w1, 3), "i": i})
+            parts.append(wav)
+            cursor += total
+            pad = ln.get("pause") if ln.get("pause") is not None else gap
+            if i < n - 1 and pad > 0:
+                sil = f"{work}/g{i}.wav"
+                ffmpeg(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", f"{pad:.3f}", sil]); parts.append(sil)
+                cursor += pad
+        lst = f"{work}/list.txt"
+        open(lst, "w").write("".join(f"file '{p}'\n" for p in parts))
+        full = f"{host.W}/out/{jid}_narr.wav"
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        ffmpeg(["-f", "concat", "-safe", "0", "-i", lst, "-c:a", "pcm_s16le", full])
+        if not any_native:  # providers without native timings: refine with ASR when available (sentence windows stay exact)
+            J.update(stage="مزامنة الكلمات بالتفريغ", progress=16)
+            J["_jid"] = jid
+            timed = asr_timed(host, P, J, full, lang)
+            if timed:
+                pairs = align_tokens([w["text"] for w in words], timed, 0.0, cursor)
+                k = 0
+                for sc in scenes:
+                    cnt = len(lines[sc["i"]]["text"].split())
+                    for q in range(k, k + cnt):
+                        a, b = pairs[q]
+                        a = min(max(a, sc["start"] - 0.05), sc["end"]); b = min(max(b, a + 0.06), sc["end"] + 0.05)
+                        words[q]["start"], words[q]["end"] = round(a, 3), round(b, 3)
+                    k += cnt
+        segs = host.build_segments(words, 3)
+        for sc in scenes:
+            sc.pop("i", None)
+        return {"path": full, "words": words, "segments": segs, "scenes": scenes, "end": round(cursor, 3), "provider": prov, "voice": voice,
+                "chars": narration_chars(lines), "moved": moved, "native": any_native}
+    finally:
+        import shutil
+        shutil.rmtree(work, ignore_errors=True)
 
 
 # ------------------------------------------------------------------ job
