@@ -174,8 +174,23 @@ def synth_eleven(text, voice, speed, P):
     key = P.setting("elevenlabs_key")
     body = {"text": text, "model_id": P.setting("elevenlabs_model") or "eleven_multilingual_v2", "voice_settings": {"stability": 0.5, "similarity_boost": 0.8, "speed": max(0.7, min(1.2, speed))}}
     import sa_eleven
-    r = requests.post(f"{sa_eleven.BASE}/v1/text-to-speech/{voice}/with-timestamps", params={"output_format": "mp3_44100_128"}, headers={"xi-api-key": key}, json=body, timeout=120)
-    if r.status_code != 200:
+    # the requested voice first; if the account can't use it (library voice on the free plan / unknown voice) try the account's own premade voices
+    cands = [voice]
+    try:
+        for vid, _n in list_voices(P, "elevenlabs") + ELEVEN_FALLBACK:
+            if vid not in cands: cands.append(vid)
+    except Exception:
+        cands += [v for v, _n in ELEVEN_FALLBACK if v not in cands]
+    r = None
+    for vid in cands[:5]:
+        r = requests.post(f"{sa_eleven.BASE}/v1/text-to-speech/{vid}/with-timestamps", params={"output_format": "mp3_44100_128"}, headers={"xi-api-key": key}, json=body, timeout=120)
+        if r.status_code == 200:
+            break
+        low = (r.text or "").lower()
+        voice_problem = r.status_code in (402, 404, 400, 422) or "library" in low or "voice" in low and "not" in low
+        if r.status_code in (401, 429) or "quota" in low or not voice_problem:
+            break
+    if r is None or r.status_code != 200:
         raise RuntimeError("ElevenLabs: " + sa_eleven.explain(r))
     j = r.json()
     audio = base64.b64decode(j["audio_base64"])
@@ -351,8 +366,13 @@ def narration_chars(lines):
     return sum(len(x["text"]) for x in lines)
 
 
+_EDGE_RE = re.compile(r"^[a-z]{2,3}-[A-Z]{2}(-[A-Za-z]+)?-\w+Neural$")
+
+
 def _pick_voice(P, prov, want, lang, gender):
     want = (want or "").strip()
+    if prov == "edge" and want and not _EDGE_RE.fullmatch(want):
+        want = ""  # an ElevenLabs/other-provider id is not a valid Edge voice -> use the Edge default
     if want and re.fullmatch(r"[A-Za-z0-9_.:\-]{1,80}", want) and (prov != "elevenlabs" or len(want) >= 15):
         return want
     vs = list_voices(P, prov) or []
