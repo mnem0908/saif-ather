@@ -31,12 +31,12 @@ DEFAULT_PLANS = {
 }
 DEFAULT_SETTINGS = {"site_name": "SA Motion Studio", "public_url": "", "maintenance": False, "maintenance_msg": "الموقع تحت الصيانة، عُد بعد قليل.",
                     "max_cloud": 12, "cloud_slots": 15, "sec_per_machine": 10, "default_plan": "pro", "welcome": "", "share_kicks": 6}
-USER_PLAIN = {"minimax_group": r"[A-Za-z0-9_\-]{4,40}", "minimax_base": r"https://[A-Za-z0-9\.\-]{3,80}(:\d{2,5})?", "minimax_model": r"[A-Za-z0-9_\.\-:/]{1,60}",
+USER_PLAIN = {"gemini_model": r"[A-Za-z0-9_\.\-:/]{1,60}",
               "openai_base": r"https://[A-Za-z0-9\.\-]{3,80}(:\d{2,5})?(/[A-Za-z0-9_\.\-/]{0,60})?", "openai_model": r"[A-Za-z0-9_\.\-:/]{1,60}"}
-USER_KEYS = ("freesound_key", "groq_key", "elevenlabs_key", "minimax_key", "openai_key") + tuple(USER_PLAIN)
-USER_KEY_UI = ("elevenlabs_key", "freesound_key", "groq_key")
-SECRET_KEYS = ["freesound_key", "elevenlabs_key", "minimax_key", "openai_key", "groq_key"]
-PLAIN_KEYS = ["minimax_group", "minimax_base", "openai_base", "openai_model", "tts_default", "minimax_model", "elevenlabs_model"]
+USER_KEYS = ("freesound_key", "groq_key", "gemini_key", "grok_key", "openai_key") + tuple(USER_PLAIN)
+USER_KEY_UI = ("gemini_key", "grok_key", "freesound_key", "groq_key", "openai_key")
+SECRET_KEYS = ["freesound_key", "gemini_key", "grok_key", "openai_key", "groq_key"]
+PLAIN_KEYS = ["gemini_model", "openai_base", "openai_model", "tts_default"]
 
 P = None  # singleton
 
@@ -830,17 +830,8 @@ def register(app):
         check = None
         if request.method == "PUT":
             d = request.get_json(silent=True) or {}
-            ev = (d.get("elevenlabs_key") or "").strip() if isinstance(d.get("elevenlabs_key"), str) else ""
-            if ev and ev != "-":  # refuse to store a key ElevenLabs does not recognise (it would silently override the site key)
-                if P.rate(f"keyput:{uid}", 10, 60):
-                    return jerr("تمهّل قليلاً", 429)
-                try:
-                    import sa_eleven
-                    pr0 = sa_eleven.probe(ev)
-                    if not pr0["valid"] and not any("تعذّر الاتصال" in n for n in pr0["notes"]):
-                        return jerr(sa_eleven.summary(pr0) + " — لم يُحفظ. تأكد من نسخ المفتاح كاملاً من ElevenLabs.", 400)
-                except Exception:
-                    pass
+            if any(isinstance(d.get(k), str) and d[k].strip() for k in USER_KEY_UI) and P.rate(f"keyput:{uid}", 20, 60):
+                return jerr("تمهّل قليلاً", 429)
             for k in USER_KEY_UI:
                 if k in d and isinstance(d[k], str):
                     v = d[k].strip()
@@ -862,13 +853,6 @@ def register(app):
             P.db.put("state", "keys:" + uid, cur)
             P.audit("mykeys", uid, "", ",".join(sorted(cur)), P.ip())
             check = None
-            if d.get("elevenlabs_key"):  # validate immediately so the subscriber knows if the key was recognised
-                try:
-                    import sa_eleven
-                    pr = sa_eleven.probe(cur.get("elevenlabs_key", ""))
-                    check = {"ok": pr["valid"], "msg": sa_eleven.summary(pr), "caps": pr["caps"]}
-                except Exception as e:
-                    check = {"ok": False, "msg": "تعذّر فحص المفتاح: " + str(e)[:100]}
         site = P.settings()
         return jsonify({"check": check if request.method == "PUT" else None,
                         "keys": {k: {"set": bool(cur.get(k)), "tail": (cur.get(k) or "")[-4:]} for k in USER_KEY_UI},
@@ -877,7 +861,7 @@ def register(app):
 
     @app.route("/api/mykeys/test/<prov>", methods=["POST"])
     def api_mykeys_test(prov):
-        if prov not in ("elevenlabs", "freesound", "groq", "minimax", "openai"):
+        if prov not in ("gemini", "grok", "freesound", "groq", "openai"):
             return jerr("bad", 400)
         if P.rate(f"keytest:{P.uid()}", 12, 60):
             return jerr("تمهّل قليلاً", 429)

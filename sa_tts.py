@@ -1,42 +1,42 @@
 # -*- coding: utf-8 -*-
-"""Text-to-speech with precise sync: several providers, sentence-level synthesis, word timings (native -> ASR -> proportional)."""
-import os, re, io, json, time, base64, asyncio, subprocess, threading, difflib, unicodedata, uuid, traceback
+"""Text-to-speech with precise sync: Gemini / Grok (xAI) / OpenAI-compatible, sentence-level synthesis, word timings (native -> ASR -> proportional)."""
+import os, re, io, json, time, base64, subprocess, threading, difflib, unicodedata, uuid, traceback, shutil, tempfile
 import requests
 from flask import request, jsonify
 
-EDGE_VOICES = [
-    ("ar-IQ-RanaNeural", "رنا — عراقية (أنثى)"), ("ar-IQ-BasselNeural", "باسل — عراقي (ذكر)"), ("ar-SA-HamedNeural", "حامد — سعودي (ذكر)"), ("ar-SA-ZariyahNeural", "زارية — سعودية (أنثى)"),
-    ("ar-EG-SalmaNeural", "سلمى — مصرية (أنثى)"), ("ar-EG-ShakirNeural", "شاكر — مصري (ذكر)"), ("ar-AE-HamdanNeural", "حمدان — إماراتي (ذكر)"), ("ar-JO-TaimNeural", "تيم — أردني (ذكر)"),
-    ("ar-LB-LaylaNeural", "ليلى — لبنانية (أنثى)"), ("ar-SY-AmanyNeural", "أماني — سورية (أنثى)"), ("en-US-AriaNeural", "Aria — English US (F)"), ("en-US-GuyNeural", "Guy — English US (M)"),
-    ("en-US-AndrewMultilingualNeural", "Andrew — Multilingual (M)"), ("en-US-AvaMultilingualNeural", "Ava — Multilingual (F)"), ("en-GB-SoniaNeural", "Sonia — English UK (F)"), ("en-GB-RyanNeural", "Ryan — English UK (M)"),
-    ("tr-TR-AhmetNeural", "Ahmet — Türkçe (M)"), ("fr-FR-DeniseNeural", "Denise — Français (F)"), ("es-ES-ElviraNeural", "Elvira — Español (F)"), ("fa-IR-FaridNeural", "فرید — فارسی (M)"),
+
+# Gemini prebuilt voices (name, label). The label shows the voice character; gender is used only to pick a sensible default.
+GEMINI_VOICES = [
+    ("Kore", "Kore — حازمة (أنثى)"), ("Sulafat", "Sulafat — دافئة (أنثى)"), ("Zephyr", "Zephyr — مشرقة (أنثى)"), ("Aoede", "Aoede — خفيفة (أنثى)"),
+    ("Leda", "Leda — شابة (أنثى)"), ("Vindemiatrix", "Vindemiatrix — لطيفة (أنثى)"), ("Gacrux", "Gacrux — ناضجة (أنثى)"), ("Achernar", "Achernar — ناعمة (أنثى)"),
+    ("Callirrhoe", "Callirrhoe — مرتاحة (أنثى)"), ("Autonoe", "Autonoe — مشرقة (أنثى)"), ("Despina", "Despina — سلسة (أنثى)"), ("Erinome", "Erinome — واضحة (أنثى)"),
+    ("Laomedeia", "Laomedeia — حيوية (أنثى)"), ("Pulcherrima", "Pulcherrima — مباشرة (أنثى)"),
+    ("Charon", "Charon — إعلامي (ذكر)"), ("Orus", "Orus — حازم (ذكر)"), ("Puck", "Puck — مرح (ذكر)"), ("Fenrir", "Fenrir — متحمس (ذكر)"),
+    ("Enceladus", "Enceladus — هادئ (ذكر)"), ("Iapetus", "Iapetus — واضح (ذكر)"), ("Umbriel", "Umbriel — مرتاح (ذكر)"), ("Algieba", "Algieba — سلس (ذكر)"),
+    ("Algenib", "Algenib — خشن (ذكر)"), ("Rasalgethi", "Rasalgethi — إعلامي (ذكر)"), ("Alnilam", "Alnilam — حازم (ذكر)"), ("Schedar", "Schedar — متوازن (ذكر)"),
+    ("Achird", "Achird — ودود (ذكر)"), ("Zubenelgenubi", "Zubenelgenubi — عفوي (ذكر)"), ("Sadachbia", "Sadachbia — حيوي (ذكر)"), ("Sadaltager", "Sadaltager — خبير (ذكر)"),
 ]
-MINIMAX_VOICES = [("male-qn-qingse", "Qingse (M)"), ("female-shaonv", "Shaonv (F)"), ("female-yujie", "Yujie (F)"), ("male-qn-jingying", "Jingying (M)"), ("presenter_male", "Presenter (M)"), ("presenter_female", "Presenter (F)"),
-                  ("audiobook_male_1", "Audiobook (M)"), ("audiobook_female_1", "Audiobook (F)"), ("English_expressive_narrator", "Expressive narrator (EN)")]
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+GEMINI_MODELS = ("gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts")  # tried in order after the model set in the admin panel
+XAI_BASE = "https://api.x.ai/v1"
+GROK_FALLBACK = [("eve", "Eve — حيوية"), ("ara", "Ara — ودودة"), ("rex", "Rex — واثق"), ("sal", "Sal — متوازن"), ("leo", "Leo — رسمي")]
 OPENAI_VOICES = [(v, v) for v in ("alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse")]
-ELEVEN_FALLBACK = [("21m00Tcm4TlvDq8ikWAM", "Rachel"), ("pNInz6obpgDQGcFmaJgB", "Adam"), ("EXAVITQu4vr4xnSDxMaL", "Sarah"), ("TX3LPaxmHKxFdv7VOQHJ", "Liam")]
+DEFAULT_VOICE = {"gemini": {"female": "Kore", "male": "Charon"}, "grok": {"female": "ara", "male": "leo"}, "openai": {"female": "nova", "male": "onyx"}}
+PROVIDER_ORDER = ("gemini", "grok", "openai")
 _voice_cache = {}
-
-
-def edge_ok():
-    try:
-        import edge_tts  # noqa
-        return True
-    except Exception:
-        return False
 
 
 def available(P):
     out = []
-    if edge_ok():
-        out.append({"id": "edge", "label": "Edge (مجاني)", "native": True})
-    if P.setting("elevenlabs_key"):
-        out.append({"id": "elevenlabs", "label": "ElevenLabs", "native": True})
-    if P.setting("minimax_key") and P.setting("minimax_group"):
-        out.append({"id": "minimax", "label": "MiniMax", "native": False})
+    if P.setting("gemini_key"):
+        out.append({"id": "gemini", "label": "Gemini TTS", "native": False})
+    if P.setting("grok_key"):
+        out.append({"id": "grok", "label": "Grok (xAI)", "native": False})
     if P.setting("openai_key"):
         out.append({"id": "openai", "label": "OpenAI / متوافق", "native": False})
     return out
+
+
 
 
 # ------------------------------------------------------------------ text helpers
@@ -141,139 +141,155 @@ def speech_window(path, total):
     return s0, max(e0, s0 + 0.1)
 
 
-# ------------------------------------------------------------------ providers: return (mp3_bytes, timed|None)
-def synth_edge(text, voice, speed, P):
-    import edge_tts
-    rate = f"{int(round((speed - 1) * 100)):+d}%"
 
-    async def go():
-        try:
-            com = edge_tts.Communicate(text, voice, rate=rate, boundary="WordBoundary")
-        except TypeError:
-            com = edge_tts.Communicate(text, voice, rate=rate)
-        audio, timed = bytearray(), []
-        async for ch in com.stream():
-            if ch["type"] == "audio":
-                audio += ch["data"]
-            elif ch["type"] == "WordBoundary":
-                s = ch["offset"] / 1e7
-                timed.append((ch["text"], s, s + ch["duration"] / 1e7))
-        return bytes(audio), timed
-    last = None
-    for attempt in range(3):
-        try:
-            a, t = asyncio.run(go())
-            if a:
-                return a, t or None
-        except Exception as e:
-            last = e; time.sleep(1.5 * (attempt + 1))
-    raise RuntimeError(f"Edge TTS: {last}")
-
-
-def synth_eleven(text, voice, speed, P):
-    key = P.setting("elevenlabs_key")
-    body = {"text": text, "model_id": P.setting("elevenlabs_model") or "eleven_multilingual_v2", "voice_settings": {"stability": 0.5, "similarity_boost": 0.8, "speed": max(0.7, min(1.2, speed))}}
-    import sa_eleven
-    # the requested voice first; if the account can't use it (library voice on the free plan / unknown voice) try the account's own premade voices
-    cands = [voice]
+# ------------------------------------------------------------------ providers: return (audio_bytes, timed|None)
+# None for `timed` is normal: none of the three returns word timings, so the pipeline aligns words with ASR (Groq / local Whisper).
+def _api_msg(r):
     try:
-        for vid, _n in list_voices(P, "elevenlabs") + ELEVEN_FALLBACK:
-            if vid not in cands: cands.append(vid)
+        j = r.json()
+        e = j.get("error") if isinstance(j, dict) else None
+        if isinstance(e, dict): return str(e.get("message") or e)[:220]
+        if e: return str(e)[:220]
+        return str(j.get("detail") or j.get("message") or j)[:220]
     except Exception:
-        cands += [v for v, _n in ELEVEN_FALLBACK if v not in cands]
-    r = None
-    for vid in cands[:5]:
-        r = requests.post(f"{sa_eleven.BASE}/v1/text-to-speech/{vid}/with-timestamps", params={"output_format": "mp3_44100_128"}, headers={"xi-api-key": key}, json=body, timeout=120)
-        if r.status_code == 200:
+        return (r.text or "")[:220]
+
+
+def _wav_from_pcm(pcm, rate=24000):
+    import wave
+    b = io.BytesIO()
+    with wave.open(b, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate); w.writeframes(pcm)
+    return b.getvalue()
+
+
+def _tempo(data, speed, ext):
+    """Gemini and Grok have no speed control: change the pace with ffmpeg atempo (pitch is preserved)."""
+    if abs(speed - 1.0) < 0.03:
+        return data
+    d = tempfile.mkdtemp()
+    try:
+        a, b = os.path.join(d, "i." + ext), os.path.join(d, "o." + ext)
+        open(a, "wb").write(data)
+        ffmpeg(["-i", a, "-filter:a", f"atempo={max(0.5, min(2.0, speed)):.3f}", b])
+        return open(b, "rb").read()
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _gemini_pcm(j):
+    for c in j.get("candidates") or []:
+        for p in (c.get("content") or {}).get("parts") or []:
+            d = p.get("inlineData") or p.get("inline_data") or {}
+            if d.get("data"):
+                m = re.search(r"rate=(\d+)", d.get("mimeType") or d.get("mime_type") or "")
+                return base64.b64decode(d["data"]), (int(m.group(1)) if m else 24000)
+    return None
+
+
+def synth_gemini(text, voice, speed, P, lang=None, style=None):
+    """Gemini TTS (generateContent -> raw PCM 24 kHz). `style` is a natural-language delivery hint, e.g. "warm, calm documentary tone"."""
+    key = P.setting("gemini_key")
+    if not key:
+        raise RuntimeError("Gemini: المفتاح غير مضبوط")
+    models = [m for m in dict.fromkeys([P.setting("gemini_model") or "", *GEMINI_MODELS]) if m]
+    prompt = f"{style.strip().rstrip(':')}: {text}" if style and style.strip() else text
+    last = None
+    for model in models:
+        body = {"contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}}}
+        for attempt in range(3):
+            try:
+                r = requests.post(f"{GEMINI_BASE}/models/{model}:generateContent", headers={"x-goog-api-key": key, "Content-Type": "application/json"}, json=body, timeout=150)
+            except requests.RequestException as e:
+                last = f"Gemini: تعذّر الاتصال ({str(e)[:80]})"; time.sleep(1.5 * (attempt + 1)); continue
+            if r.status_code == 200:
+                got = _gemini_pcm(r.json())
+                if got:
+                    return _tempo(_wav_from_pcm(got[0], got[1]), speed, "wav"), None
+                last = f"Gemini ({model}): لم يرجع صوتاً"; time.sleep(1.0 + attempt); continue  # the model sometimes answers with text only -> retry
+            msg = _api_msg(r)
+            last = f"Gemini HTTP {r.status_code} ({model}): {msg}"
+            if r.status_code in (429, 500, 502, 503, 504):
+                time.sleep(2.5 * (attempt + 1)); continue
+            if r.status_code in (400, 404) and re.search(r"model|not found|not supported|unsupported", msg, re.I) and not re.search(r"api key", msg, re.I):
+                break  # this model is not available for the key -> next model
+            raise RuntimeError(last)
+    raise RuntimeError(last or "Gemini: فشل التوليد")
+
+
+def synth_grok(text, voice, speed, P, lang=None, style=None):
+    """Grok (xAI) TTS: POST /v1/tts -> mp3."""
+    key = P.setting("grok_key")
+    if not key:
+        raise RuntimeError("Grok: المفتاح غير مضبوط")
+    heads = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
+    last = None
+    for lg in dict.fromkeys([x for x in (lang, "auto") if x] + [None]):  # the language hint is optional; try without it if it is rejected
+        body = {"text": text, "voice_id": voice}
+        if lg: body["language"] = lg
+        for attempt in range(3):
+            try:
+                r = requests.post(f"{XAI_BASE}/tts", headers=heads, json=body, timeout=150)
+            except requests.RequestException as e:
+                last = f"Grok: تعذّر الاتصال ({str(e)[:80]})"; time.sleep(1.5 * (attempt + 1)); continue
+            if r.status_code == 200 and len(r.content) > 500 and "json" not in (r.headers.get("content-type") or "").lower():
+                return _tempo(r.content, speed, "mp3"), None
+            last = f"Grok HTTP {r.status_code}: {_api_msg(r)}"
+            if r.status_code in (429, 500, 502, 503, 504):
+                time.sleep(2.5 * (attempt + 1)); continue
             break
-        low = (r.text or "").lower()
-        voice_problem = r.status_code in (402, 404, 400, 422) or "library" in low or "voice" in low and "not" in low
-        if r.status_code in (401, 429) or "quota" in low or not voice_problem:
+        if re.search(r"HTTP (401|403|402)", last or ""):
             break
-    if r is None or r.status_code != 200:
-        raise RuntimeError("ElevenLabs: " + sa_eleven.explain(r))
-    j = r.json()
-    audio = base64.b64decode(j["audio_base64"])
-    al = j.get("alignment") or {}
-    chars, st, en = al.get("characters") or [], al.get("character_start_times_seconds") or [], al.get("character_end_times_seconds") or []
-    timed, cur, s0, e0 = [], "", None, 0
-    for c, s, e in zip(chars, st, en):
-        if c.isspace():
-            if cur:
-                timed.append((cur, s0, e0)); cur, s0 = "", None
-            continue
-        if s0 is None: s0 = s
-        cur += c; e0 = e
-    if cur:
-        timed.append((cur, s0, e0))
-    return audio, timed or None
+    raise RuntimeError(last or "Grok: فشل التوليد")
 
 
-def synth_minimax(text, voice, speed, P):
-    base = (P.setting("minimax_base") or "https://api.minimax.io").rstrip("/")
-    body = {"model": P.setting("minimax_model") or "speech-02-hd", "text": text, "stream": False,
-            "voice_setting": {"voice_id": voice, "speed": max(0.5, min(2.0, speed)), "vol": 1.0, "pitch": 0},
-            "audio_setting": {"sample_rate": 32000, "bitrate": 128000, "format": "mp3", "channel": 1}}
-    r = requests.post(f"{base}/v1/t2a_v2", params={"GroupId": P.setting("minimax_group")}, headers={"Authorization": "Bearer " + P.setting("minimax_key")}, json=body, timeout=120)
-    if r.status_code != 200:
-        raise RuntimeError(f"MiniMax HTTP {r.status_code}: {r.text[:200]}")
-    j = r.json()
-    br = j.get("base_resp") or {}
-    if br.get("status_code", 0) != 0:
-        raise RuntimeError(f"MiniMax {br.get('status_code')}: {br.get('status_msg')}")
-    return bytes.fromhex(j["data"]["audio"]), None
+def grok_voices(P):
+    c = _voice_cache.get("grok")
+    if c and time.time() - c[0] < 600:
+        return c[1]
+    try:
+        r = requests.get(f"{XAI_BASE}/tts/voices", headers={"Authorization": "Bearer " + P.setting("grok_key")}, timeout=20)
+        raw = r.json().get("voices") or []
+        vs = []
+        for v in raw:
+            if isinstance(v, str): vs.append((v, v)); continue
+            vid = v.get("voice_id") or v.get("id")
+            if vid: vs.append((str(vid), str(v.get("name") or vid) + (" — " + str(v.get("description"))[:40] if v.get("description") else "")))
+        if vs:
+            _voice_cache["grok"] = (time.time(), vs)
+            return vs
+    except Exception:
+        pass
+    return GROK_FALLBACK
 
 
-def synth_openai(text, voice, speed, P):
+def synth_openai(text, voice, speed, P, lang=None, style=None):
     base = (P.setting("openai_base") or "https://api.openai.com/v1").rstrip("/")
-    r = requests.post(f"{base}/audio/speech", headers={"Authorization": "Bearer " + P.setting("openai_key")},
-                      json={"model": P.setting("openai_model") or "gpt-4o-mini-tts", "input": text, "voice": voice, "response_format": "mp3", "speed": max(0.25, min(4.0, speed))}, timeout=120)
+    model = P.setting("openai_model") or "gpt-4o-mini-tts"
+    body = {"model": model, "input": text, "voice": voice, "response_format": "mp3", "speed": max(0.25, min(4.0, speed))}
+    if style and "gpt-4o" in model:
+        body["instructions"] = style[:300]
+    r = requests.post(f"{base}/audio/speech", headers={"Authorization": "Bearer " + P.setting("openai_key")}, json=body, timeout=120)
     if r.status_code != 200:
         raise RuntimeError(f"TTS HTTP {r.status_code}: {r.text[:200]}")
     return r.content, None
 
 
-SYNTH = {"edge": synth_edge, "elevenlabs": synth_eleven, "minimax": synth_minimax, "openai": synth_openai}
+SYNTH = {"gemini": synth_gemini, "grok": synth_grok, "openai": synth_openai}
 
 
 def list_voices(P, prov):
-    if prov == "edge":
-        return EDGE_VOICES
-    if prov == "minimax":
-        return MINIMAX_VOICES
+    if prov == "gemini":
+        return GEMINI_VOICES
+    if prov == "grok":
+        return grok_voices(P)
     if prov == "openai":
         return OPENAI_VOICES
-    if prov == "elevenlabs":
-        c = _voice_cache.get("el")
-        if c and time.time() - c[0] < 600:
-            return c[1]
-        try:
-            r = requests.get(__import__("sa_eleven").BASE + "/v1/voices", headers={"xi-api-key": P.setting("elevenlabs_key")}, timeout=20)
-            raw = sorted(r.json().get("voices", []), key=lambda v: 0 if v.get("category") == "premade" else 1)
-            vs = [(v["voice_id"], v["name"] + (" — " + (v.get("labels") or {}).get("accent", "") if (v.get("labels") or {}).get("accent") else "")) for v in raw]
-            if vs:
-                _voice_cache["el"] = (time.time(), vs)
-                return vs
-        except Exception:
-            pass
-        return ELEVEN_FALLBACK
     return []
 
 
 def test_provider(P, prov):
-    if prov == "elevenlabs":
-        import sa_eleven
-        k = P.setting("elevenlabs_key")
-        if not k: return {"ok": False, "msg": "لم تُدخل مفتاح ElevenLabs بعد"}
-        pr = sa_eleven.probe(k)
-        if not pr["valid"]:
-            return {"ok": False, "msg": sa_eleven.summary(pr), "caps": pr["caps"]}
-        try:
-            a, _t = synth_eleven("Hello.", list_voices(P, "elevenlabs")[0][0], 1.0, P)
-            extra = f" — توليد الصوت يعمل ✓ ({len(a) // 1024}KB)"
-        except Exception as e:
-            extra = " — ⚠ توليد الصوت غير متاح: " + str(e)[:160] + " (سيُستخدم صوت مجاني بديل تلقائياً)"
-        return {"ok": True, "msg": sa_eleven.summary(pr) + extra, "caps": pr["caps"]}
     if prov == "freesound":
         k = P.setting("freesound_key")
         if not k: return {"ok": False, "msg": "المفتاح غير مضبوط"}
@@ -285,17 +301,15 @@ def test_provider(P, prov):
         r = requests.get("https://api.groq.com/openai/v1/models", headers={"Authorization": "Bearer " + k}, timeout=20)
         return {"ok": r.status_code == 200, "msg": "Groq يعمل ✓" if r.status_code == 200 else f"HTTP {r.status_code}"}
     if prov in SYNTH:
-        if prov == "edge" and not edge_ok(): return {"ok": False, "msg": "مكتبة edge-tts غير مثبتة"}
-        voice = {"edge": "en-US-AriaNeural", "elevenlabs": ELEVEN_FALLBACK[0][0], "minimax": "female-shaonv", "openai": "alloy"}[prov]
-        if prov == "elevenlabs" and not P.setting("elevenlabs_key"): return {"ok": False, "msg": "المفتاح غير مضبوط"}
-        if prov == "minimax" and not (P.setting("minimax_key") and P.setting("minimax_group")): return {"ok": False, "msg": "المفتاح أو Group ID غير مضبوط"}
-        if prov == "openai" and not P.setting("openai_key"): return {"ok": False, "msg": "المفتاح غير مضبوط"}
-        a, t = SYNTH[prov]("Hello, this is a test.", voice, 1.0, P)
-        return {"ok": True, "msg": f"{prov} يعمل ✓ ({len(a) // 1024}KB" + (" + توقيت كلمات أصلي)" if t else ")")}
+        if not P.setting(prov + "_key"): return {"ok": False, "msg": "المفتاح غير مضبوط"}
+        a, _t = SYNTH[prov]("Hello, this is a test.", DEFAULT_VOICE[prov]["female"], 1.0, P, lang="en")
+        label = {"gemini": "Gemini", "grok": "Grok", "openai": "OpenAI"}[prov]
+        return {"ok": True, "msg": f"{label} يعمل ✓ (عيّنة {len(a) // 1024}KB)"}
     return {"ok": False, "msg": "مزوّد غير معروف"}
 
 
-# ------------------------------------------------------------------ ASR helpers (optional refinement / transcription)
+
+# ------------------------------------------------------------------ ASR helpers (word timings for providers that have none / transcription)
 def groq_words(P, path, lang=""):
     key = P.setting("groq_key")
     if not key or os.path.getsize(path) > 24 * 1024 * 1024:
@@ -311,16 +325,9 @@ def groq_words(P, path, lang=""):
     return words, j.get("language", lang or "")
 
 
+
 def asr_timed(host, P, J, wav, lang):
-    try:
-        ek = P.setting("elevenlabs_key")
-        if ek:
-            import sa_eleven
-            w, _ = sa_eleven.stt_words(ek, wav, lang)
-            if w:
-                return [(x["text"], x["start"], x["end"]) for x in w]
-    except Exception as e:
-        print("elevenlabs asr failed:", e, flush=True)
+    """word timings for audio that has none: Groq Whisper (fast) -> local faster-whisper"""
     try:
         g = groq_words(P, wav, lang)
         if g and g[0]:
@@ -336,13 +343,11 @@ def asr_timed(host, P, J, wav, lang):
         return None
 
 
+
 # ------------------------------------------------------------------ code-driven narration (export const NARRATION = [...])
-DEFAULT_EDGE = {("ar", "male"): "ar-IQ-BasselNeural", ("ar", "female"): "ar-IQ-RanaNeural", ("en", "male"): "en-US-GuyNeural", ("en", "female"): "en-US-AriaNeural"}
-
-
 def parse_narration(code):
     """`export const NARRATION = [{ text: "...", t: 0.4, pause: 0.5, voice: "...", speed: 1 }, ...]` -> (lines, opts). Header options come
-    from an optional first object without text: { provider, voice, lang, gender, speed }."""
+    from an optional first object without text: { provider, voice, lang, gender, style, speed, gap }."""
     import sa_audio
     body = sa_audio._scan(code, "NARRATION", "[", "]")
     if body is None:
@@ -351,7 +356,7 @@ def parse_narration(code):
     for o in sa_audio._objects(body):
         text = sa_audio._str(o, "text")
         if not text:
-            for k in ("provider", "voice", "lang", "gender"):
+            for k in ("provider", "voice", "lang", "gender", "style"):
                 v = sa_audio._str(o, k)
                 if v: opts[k] = v
             if sa_audio._num(o, "speed"): opts["speed"] = sa_audio._num(o, "speed")
@@ -366,38 +371,42 @@ def narration_chars(lines):
     return sum(len(x["text"]) for x in lines)
 
 
-_EDGE_RE = re.compile(r"^[a-z]{2,3}-[A-Z]{2}(-[A-Za-z]+)?-\w+Neural$")
+_LEGACY_VOICE = re.compile(r"^[a-z]{2,3}-[A-Z]{2}(-[A-Za-z]+)?-\w+Neural$")  # old Edge voice ids in saved scripts
 
 
-def _pick_voice(P, prov, want, lang, gender):
-    want = (want or "").strip()
-    if prov == "edge" and want and not _EDGE_RE.fullmatch(want):
-        want = ""  # an ElevenLabs/other-provider id is not a valid Edge voice -> use the Edge default
-    if want and re.fullmatch(r"[A-Za-z0-9_.:\-]{1,80}", want) and (prov != "elevenlabs" or len(want) >= 15):
-        return want
+def _pick_voice(P, prov, want, lang, gender, keep=True):
+    """`want` is honoured only for the provider the script asked for (keep=True); a fallback provider uses its own default for the gender."""
+    want = (want or "").strip() if keep else ""
+    if want and _LEGACY_VOICE.fullmatch(want):
+        want = ""
     vs = list_voices(P, prov) or []
-    if want:  # a voice NAME
-        for vid, name in vs:
+    if want:
+        ids = {v.lower(): v for v, _n in vs}
+        if want.lower() in ids:
+            return ids[want.lower()]
+        for vid, name in vs:  # a voice NAME or part of it
             if want.lower() in name.lower():
                 return vid
-    if prov == "edge":
-        return DEFAULT_EDGE.get((lang or "ar", gender or "female")) or DEFAULT_EDGE[("ar", "female")]
-    if prov == "elevenlabs":
-        return (vs or ELEVEN_FALLBACK)[0][0]
-    return {"minimax": "female-shaonv", "openai": "alloy"}.get(prov) or (vs[0][0] if vs else "")
+        if prov in ("grok", "openai") and re.fullmatch(r"[A-Za-z0-9_.:\-]{1,80}", want):
+            return want  # a custom / cloned voice id of the account
+    g = gender if gender in ("male", "female") else "female"
+    return DEFAULT_VOICE.get(prov, {}).get(g) or (vs[0][0] if vs else "")
 
 
 def narrate(host, P, J, jid, lines, opts):
     """Generate the narration; if the chosen provider fails, fall back to the next available one (with a note)."""
     avail = [p["id"] for p in available(P)]
-    first = opts.get("provider") if opts.get("provider") in avail else None
-    chain = ([first] if first else []) + [x for x in ("elevenlabs", "edge", "openai", "minimax") if x in avail and x != first]
+    asked = (opts.get("provider") or "").strip().lower()
+    first = asked if asked in avail else None
+    chain = ([first] if first else []) + [x for x in PROVIDER_ORDER if x in avail and x != first]
     if not chain:
-        raise RuntimeError("لا يوجد مزوّد صوت متاح: أضف مفتاح ElevenLabs أو غيره من «مفاتيحي الخاصة».")
+        raise RuntimeError("لا يوجد مزوّد صوت متاح: أضف مفتاح Gemini أو Grok (أو OpenAI) من «مفاتيحي الخاصة».")
     notes, last = [], None
-    for prov in chain:
+    if asked and not first:
+        notes.append(f"المزوّد «{asked}» غير متاح في الاستوديو — استُخدم {chain[0]}.")
+    for idx, prov in enumerate(chain):
         try:
-            res = _narrate(host, P, J, jid, lines, opts, prov)
+            res = _narrate(host, P, J, jid, lines, opts, prov, keep_voice=(idx == 0))
             res["notes"] = notes
             return res
         except RuntimeError as e:
@@ -411,7 +420,8 @@ def narrate(host, P, J, jid, lines, opts):
     raise RuntimeError("تعذّر توليد الصوت عبر كل المزوّدين: " + " | ".join(notes))
 
 
-def _narrate(host, P, J, jid, lines, opts, prov):
+
+def _narrate(host, P, J, jid, lines, opts, prov, keep_voice=True):
     lang = (opts.get("lang") or "ar")[:2].lower()
     base_speed = max(0.7, min(1.25, float(opts.get("speed") or 1.0)))
     gap = max(0.05, min(2.0, float(opts.get("gap") if opts.get("gap") is not None else 0.35)))
@@ -425,9 +435,9 @@ def _narrate(host, P, J, jid, lines, opts, prov):
             J.update(stage=f"توليد الصوت {i + 1}/{n} ({prov})", progress=3 + int(12 * i / max(1, n)))
             if J.get("cancelled"):
                 raise RuntimeError("تم الإلغاء")
-            voice = _pick_voice(P, prov, ln.get("voice") or opts.get("voice"), lang, opts.get("gender"))
-            audio, timed = SYNTH[prov](ln["text"], voice, max(0.7, min(1.25, ln.get("speed") or base_speed)), P)
-            raw = f"{work}/s{i}.mp3"; open(raw, "wb").write(audio)
+            voice = _pick_voice(P, prov, ln.get("voice") or opts.get("voice"), lang, opts.get("gender"), keep=keep_voice)
+            audio, timed = SYNTH[prov](ln["text"], voice, max(0.7, min(1.25, ln.get("speed") or base_speed)), P, lang=lang, style=opts.get("style"))
+            raw = f"{work}/s{i}.aud"; open(raw, "wb").write(audio)
             wav = f"{work}/s{i}.wav"
             ffmpeg(["-i", raw, "-ar", "48000", "-ac", "1", wav])
             total = dur_of(wav)
@@ -503,8 +513,8 @@ def tts_job(host, P, jid, uid, d):
             J.update(stage=f"توليد الصوت {i + 1}/{n}", progress=5 + int(70 * i / n))
             if J.get("cancelled"):
                 raise RuntimeError("تم الإلغاء")
-            audio, timed = SYNTH[prov](s["text"], voice, speed, P)
-            raw = f"{work}/s{i}.mp3"; open(raw, "wb").write(audio)
+            audio, timed = SYNTH[prov](s["text"], voice, speed, P, lang=((d.get("lang") or "")[:2].lower() or None))
+            raw = f"{work}/s{i}.aud"; open(raw, "wb").write(audio)
             wav = f"{work}/s{i}.wav"
             ffmpeg(["-i", raw, "-ar", "48000", "-ac", "1", wav])
             total = dur_of(wav)

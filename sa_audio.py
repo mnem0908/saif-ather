@@ -94,36 +94,29 @@ def fs_sfx(host, key, query, variant):
     return fn, f"Freesound #{sres['id']} by {sres.get('username', '?')}"
 
 
-def get_music(host, style, key, dur, jid, warns, el_key="", spec=None):
-    """background music. Order: spec.source, else (prompt given -> ElevenLabs first) / (no prompt -> Freesound first), then the other, then synthesized."""
+_STOP = {"a", "an", "the", "and", "with", "of", "in", "on", "to", "for", "that", "then", "builds", "gently", "bpm", "instrumental", "sound", "sounds", "effect", "effects", "sfx", "very", "soft", "slow", "fast", "deep", "long", "tail"}
+
+
+def _kw(text, n=5):
+    """a long description -> a few Freesound search words (Freesound ANDs every word, so short queries find more)"""
+    ws = [w for w in re.findall(r"[A-Za-z][A-Za-z\-']+", text or "") if w.lower() not in _STOP]
+    return " ".join(ws[:n])
+
+
+def get_music(host, style, key, dur, jid, warns, spec=None):
+    """background music: a real Freesound track looped to length (search words: spec.fs, else keywords of spec.prompt, else the style default); else a pad synthesized locally."""
     out = f"{host.W}/out/{jid}_music.m4a"
     spec = spec or {}
     if style not in STYLES:
         style = "chill"
-    prompt = (spec.get("prompt") or "").strip()
-    order = [spec["source"]] if spec.get("source") else (["elevenlabs", "freesound"] if prompt else ["freesound", "elevenlabs"])
-    for x in ("freesound", "elevenlabs"):
-        if x not in order:
-            order.append(x)
-    for src in order:
-        if src == "elevenlabs" and el_key:
+    if key:
+        for q in [x for x in (spec.get("fs"), _kw(spec.get("prompt"))) if x] + [None]:
             try:
-                import sa_eleven
-                path, label = sa_eleven.music(host, el_key, style, dur, prompt or None)
-                r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-stream_loop", "-1", "-i", path, "-t", f"{dur:.3f}", "-vn", "-c:a", "aac", "-b:a", "192k", out], capture_output=True, text=True)
-                if r.returncode == 0 and os.path.exists(out):
-                    return out, label
-                raise RuntimeError(r.stderr[-120:])
-            except Exception as e:
-                warns.append(f"موسيقى ElevenLabs: {e}")
-        elif src == "freesound" and key:
-            try:
-                q = spec.get("fs") or None
                 return fs_music(host, style, key, dur, out, q)
             except Exception as e:
-                warns.append(f"موسيقى Freesound: {e}")
-    if not key and not el_key:
-        warns.append("لا يوجد مفتاح Freesound أو ElevenLabs للموسيقى — استُخدمت موسيقى مولّدة بسيطة. أضف مفتاحاً من «مفاتيحي الخاصة».")
+                warns.append(f"موسيقى Freesound ({q or 'افتراضي'}): {e}")
+    else:
+        warns.append("لا يوجد مفتاح Freesound للموسيقى — استُخدمت موسيقى مولّدة بسيطة. أضف المفتاح من «مفاتيحي الخاصة».")
     return synth_music(host, style, dur, out), f"مولّدة محلياً ({STYLES[style]['label']})"
 
 
@@ -210,13 +203,13 @@ def _objects(body):
 
 
 def parse_music(code):
-    """`export const MUSIC = { prompt: "...", style: "upbeat", source: "freesound"|"elevenlabs", fs: "search words" }`"""
+    """`export const MUSIC = { style: "upbeat", fs: "search words", prompt: "optional description (its keywords are used when fs is missing)" }`"""
     b = _scan(code, "MUSIC", "{", "}")
     if b is None:
         return None
     src = (_str(b, "source") or "").lower()
     return {"prompt": (_str(b, "prompt") or "")[:300], "style": (_str(b, "style") or "").lower(), "fs": (_str(b, "fs") or "")[:80],
-            "source": src if src in ("freesound", "elevenlabs") else ""}
+            "source": "freesound" if src == "freesound" else ""}
 
 
 def smart_plan(host, code, duration, words, raw_video, owner, warns):
@@ -375,7 +368,6 @@ def finish(host, jid, d, J, raw, final, duration, voice, segments):
     """full audio stage. Returns (used_sfx, warnings, report)"""
     warns, used = [], []
     plat = getattr(host, "PLATFORM", None)
-    el_key = (plat.setting("elevenlabs_key") if plat else "") or ""
     key = ((plat.setting("freesound_key") if plat else "") or (d.get("sfx") or {}).get("key") or "").strip()
     sc, mc = dict(d.get("sfx") or {}), dict(d.get("music") or {})
     code = d.get("code", "") or ""
@@ -390,9 +382,9 @@ def finish(host, jid, d, J, raw, final, duration, voice, segments):
     if sc.get("enabled"):
         J.update(stage="تجهيز المؤثرات الصوتية", progress=92)
         plan, src = build_plan(host, d, raw, duration, segments, warns, J.get("owner", ""))
-        fs_n = loc_n = el_n = 0
+        fs_n = loc_n = 0
         reasons = set()
-        el_fail, fs_fail = [], []
+        fs_fail = []
         for i, it in enumerate(plan[:80]):
             if it["t"] >= duration:
                 continue
@@ -401,35 +393,26 @@ def finish(host, jid, d, J, raw, final, duration, voice, segments):
                 used.append({"kind": "custom", "t": it["t"], "source": "ملفك"})
                 continue
             path = source = None
-            # a described sound (sfx:"...") is generated first; a plain kind / fs:"query" comes from Freesound first (real recordings)
-            order = ["elevenlabs", "freesound"] if it.get("prompt") and not it.get("fs") else ["freesound", "elevenlabs"]
-            for origin in order:
-                if path:
-                    break
-                if origin == "freesound" and key:
+            # described sound (sfx:"...") or fs:"query" -> Freesound search by words; a plain kind -> the studio's per-kind query; no key / no hit -> local synth
+            q = it.get("fs") or (_kw(it.get("prompt"), 4) if it.get("prompt") else "")
+            if key:
+                try:
+                    if q:
+                        path, source = fs_sfx(host, key, q, i)
+                except Exception as e:
+                    if str(e)[:90] not in fs_fail: fs_fail.append(str(e)[:90])
+                if not path:
                     try:
-                        if it.get("fs"):
-                            path, source = fs_sfx(host, key, it["fs"], i)
-                        else:
-                            p0, s0 = host.get_sfx(it["kind"], key, i % 4)
-                            if s0.startswith("Freesound"):
-                                path, source = p0, s0
-                            else:
-                                if s0 not in fs_fail: fs_fail.append(s0[:90])
+                        p0, s0 = host.get_sfx(it["kind"], key, i % 4)
+                        if s0.startswith("Freesound"):
+                            path, source = p0, s0
+                        elif s0[:90] not in fs_fail:
+                            fs_fail.append(s0[:90])
                     except Exception as e:
                         if str(e)[:90] not in fs_fail: fs_fail.append(str(e)[:90])
-                elif origin == "elevenlabs" and el_key:
-                    try:
-                        import sa_eleven
-                        kp = sa_eleven.KIND_PROMPTS.get(it["kind"]) or sa_eleven.KIND_PROMPTS["whoosh"]
-                        path, source = sa_eleven.sfx(host, el_key, it.get("prompt") or it.get("fs") or kp[0], it.get("dur") or (None if (it.get("prompt") or it.get("fs")) else kp[1]))
-                    except Exception as e:
-                        if str(e)[:90] not in el_fail: el_fail.append(str(e)[:90])
             if not path:
                 path, source = host.get_sfx(it["kind"], "", i % 4)
-            if source.startswith("ElevenLabs"):
-                el_n += 1
-            elif source.startswith("Freesound"):
+            if source.startswith("Freesound"):
                 fs_n += 1
             else:
                 loc_n += 1
@@ -437,21 +420,19 @@ def finish(host, jid, d, J, raw, final, duration, voice, segments):
                 if key and m: reasons.add(m.group(1)[:90])
             sfx.append((path, it["t"], SFX_VOL * it.get("vol", 1.0)))
             used.append({"kind": it["kind"], "t": it["t"], "source": source})
-        rep["sfx"] = {"plan": src, "count": len(sfx), "elevenlabs": el_n, "freesound": fs_n, "local": loc_n}
+        rep["sfx"] = {"plan": src, "count": len(sfx), "freesound": fs_n, "local": loc_n}
         if src.startswith("الكود"): rep["sync"] = src[6:]
         if not sfx:
             warns.append("المؤثرات مفعّلة لكن لم تُوجد مواضع مناسبة لها.")
-        if el_key and el_fail:
-            warns.append("ElevenLabs لم يولّد بعض المؤثرات: " + "؛ ".join(el_fail) + (" — استُخدم البديل." if (fs_n or loc_n) else ""))
         if key and fs_fail and loc_n:
             warns.append(f"تعذّر جلب {loc_n} مؤثر من Freesound فاستُخدم المحلي: " + "؛ ".join(fs_fail[:3]))
-        if not key and not el_key and sfx and loc_n:
-            warns.append("لا يوجد مفتاح Freesound ولا ElevenLabs: أضف مفتاحاً من «مفاتيحي الخاصة» لمؤثرات حقيقية. استُخدمت مؤثرات مولّدة محلياً.")
+        if not key and sfx and loc_n:
+            warns.append("لا يوجد مفتاح Freesound: أضف المفتاح من «مفاتيحي الخاصة» لمؤثرات حقيقية. استُخدمت مؤثرات مولّدة محلياً.")
     music = None
     if mc.get("enabled"):
         J.update(stage="تجهيز الموسيقى الخلفية", progress=94)
         try:
-            music, msrc = get_music(host, (mspec or {}).get("style") or mc.get("style") or "chill", key, duration, jid, warns, el_key, mspec)
+            music, msrc = get_music(host, (mspec or {}).get("style") or mc.get("style") or "chill", key, duration, jid, warns, mspec)
             rep["music"] = {"source": msrc, "style": (mspec or {}).get("style") or mc.get("style") or "chill", "prompt": (mspec or {}).get("prompt") or ""}
         except Exception as e:
             warns.append(f"فشل توليد الموسيقى: {e}")

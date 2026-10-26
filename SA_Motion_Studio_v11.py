@@ -57,9 +57,9 @@ if need:
     sh("fc-cache -f", timeout=120)
 
 import importlib.util
-if not all(importlib.util.find_spec(m) for m in ("flask", "requests", "faster_whisper", "cryptography", "edge_tts")):
+if not all(importlib.util.find_spec(m) for m in ("flask", "requests", "faster_whisper", "cryptography")):
     print("🐍 تثبيت مكتبات Python (flask, requests, faster-whisper) ...")
-    sh(f"{sys.executable} -m pip install -q --disable-pip-version-check flask requests cryptography edge-tts 'faster-whisper==1.1.1'", timeout=900)
+    sh(f"{sys.executable} -m pip install -q --disable-pip-version-check flask requests cryptography 'faster-whisper==1.1.1'", timeout=900)
 
 def node_major():
     try:
@@ -318,13 +318,12 @@ textarea.code{background:#fffdfb;color:#3b2a22}.edbar{background:#fff}
 <a class="mi2" id="adminBtn" href="/admin" style="display:none"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>لوحة الإدارة</a>
 <a class="mi2 dg" href="/logout"><svg class="ic" viewBox="0 0 24 24"><path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9"/></svg>تسجيل الخروج</a></div></div></div></div>
 <div class="mdl" id="keysMdl"><div class="bx"><h2>🔑 مفاتيحي الخاصة</h2><div class="sub">أضف مفاتيحك الشخصية لتُستخدم بدل مفاتيح الموقع في حسابك فقط. تُحفظ مشفّرة ولا تظهر لأحد.</div>
-<div class="kr"><label><span>ElevenLabs — المفتاح الرئيسي</span><span class="st" id="ke_st"></span></label><input class="in" id="ke" dir="ltr" type="password" autocomplete="off" placeholder="sk_..."></div>
-<div class="hint" style="margin:6px 0 8px;line-height:1.9">يخدم المؤثرات والموسيقى والتفريغ والنطق. أنشئه من حسابك في ElevenLabs (قسم API Keys) وفعّل صلاحيات المؤثرات والموسيقى والتفريغ والنطق.</div>
-<details class="kr"><summary style="cursor:pointer;color:var(--t3);font-size:12px">مفاتيح اختيارية بديلة</summary>
-<label style="margin-top:8px"><span>Freesound (بديل المؤثرات)</span><span class="st" id="kf_st"></span></label><input class="in" id="kf" dir="ltr" type="password" autocomplete="off" placeholder="الصق API Key">
-<label style="margin-top:8px"><span>Groq (بديل التفريغ)</span><span class="st" id="kg_st"></span></label><input class="in" id="kg" dir="ltr" type="password" autocomplete="off" placeholder="gsk_...">
-<label style="margin-top:8px"><span>MiniMax (صوت بديل) — المفتاح</span><span class="st" id="km_st"></span></label><input class="in" id="km" dir="ltr" type="password" autocomplete="off" placeholder="API Key">
-<input class="in" id="kmg" dir="ltr" autocomplete="off" placeholder="Group ID" style="margin-top:6px">
+<div class="kr"><label><span>Gemini — صوت التعليق (TTS)</span><span class="st" id="kgm_st"></span></label><input class="in" id="kgm" dir="ltr" type="password" autocomplete="off" placeholder="AIza..."></div>
+<div class="hint" style="margin:6px 0 8px;line-height:1.9">مفتاح Gemini API من Google AI Studio. يولّد التعليق الصوتي بأصوات كثيرة ويقرأ العربية بحسب سياق النص.</div>
+<div class="kr" style="margin-top:8px"><label><span>Grok (xAI) — صوت التعليق (TTS)</span><span class="st" id="kgk_st"></span></label><input class="in" id="kgk" dir="ltr" type="password" autocomplete="off" placeholder="xai-..."></div>
+<div class="kr" style="margin-top:8px"><label><span>Freesound — المؤثرات والموسيقى</span><span class="st" id="kf_st"></span></label><input class="in" id="kf" dir="ltr" type="password" autocomplete="off" placeholder="الصق API Key"></div>
+<details class="kr"><summary style="cursor:pointer;color:var(--t3);font-size:12px">مفاتيح اختيارية</summary>
+<label style="margin-top:8px"><span>Groq (تفريغ أسرع لمزامنة الكلمات)</span><span class="st" id="kg_st"></span></label><input class="in" id="kg" dir="ltr" type="password" autocomplete="off" placeholder="gsk_...">
 <label style="margin-top:8px"><span>OpenAI أو أي خدمة متوافقة — المفتاح</span><span class="st" id="ko_st"></span></label><input class="in" id="ko" dir="ltr" type="password" autocomplete="off" placeholder="sk-...">
 <input class="in" id="kob" dir="ltr" autocomplete="off" placeholder="عنوان الخدمة (اختياري) https://api.openai.com/v1" style="margin-top:6px">
 <input class="in" id="kom" dir="ltr" autocomplete="off" placeholder="الموديل (اختياري) gpt-4o-mini-tts" style="margin-top:6px"></details>
@@ -533,7 +532,7 @@ async function runJob(mode){if(S.job||S.starting)return;if(!code.value.trim())re
   (res.warnings||[]).forEach(w=>log('تنبيه: '+w,'h'));
   if(mode==='still'){const im=$('still');im.src=res.url+'?t='+Date.now();im.style.display='block';$('vid').style.display='none';$('empty').style.display='none';log('اللقطة جاهزة','s')}
   else{const v=$('vid');v.src=res.url+'?t='+Date.now();v.addEventListener('loadeddata',()=>{if(v.paused&&v.currentTime<0.05)v.currentTime=Math.min(0.7,(v.duration||1)/3)},{once:true});v.style.display='block';$('still').style.display='none';$('empty').style.display='none';v.play().catch(()=>{});
-   $('dl').href=res.url+'?dl=1';$('dl').style.display='flex';(res.sfx_used||[]).forEach(s=>log(`مؤثر ${s.kind} @${s.t.toFixed(2)}s ← ${s.source}`,'i'));if(res.audio){const a=res.audio;if(a.sfx)log(`🔊 مؤثرات: ${a.sfx.count} (${a.sfx.plan}) · ElevenLabs ${a.sfx.elevenlabs||0} · Freesound ${a.sfx.freesound} · محلي ${a.sfx.local}`,'h');if(a.music)log(`🎵 موسيقى: ${a.music.source}${a.music.prompt?' · «'+a.music.prompt.slice(0,50)+'»':''}`,'h');if((a.auto_enabled||[]).length)log('⚙ فُعّلت تلقائياً من الكود: '+a.auto_enabled.join('، '),'i');if(a.voice&&a.voice.narration)log(`🎙 صوت مولّد من الكود (${a.voice.narration.provider}) · ${a.voice.narration.seconds}ث · ${a.voice.narration.words} كلمة — مدمج ومتزامن`,'s');else if(a.voice)log(a.voice.mixed?'🎤 صوت المقطع الأصلي: مدمج':'🎤 صوت المقطع لم يُدمج: '+a.voice.why,a.voice.mixed?'s':'h');if(a.sync)log('🎯 مزامنة ذكية: '+a.sync,'h');if(a.mean_db!=null)log(`مستوى الصوت النهائي ${a.mean_db} dB`,'i')}
+   $('dl').href=res.url+'?dl=1';$('dl').style.display='flex';(res.sfx_used||[]).forEach(s=>log(`مؤثر ${s.kind} @${s.t.toFixed(2)}s ← ${s.source}`,'i'));if(res.audio){const a=res.audio;if(a.sfx)log(`🔊 مؤثرات: ${a.sfx.count} (${a.sfx.plan}) · Freesound ${a.sfx.freesound} · محلي ${a.sfx.local}`,'h');if(a.music)log(`🎵 موسيقى: ${a.music.source}${a.music.prompt?' · «'+a.music.prompt.slice(0,50)+'»':''}`,'h');if((a.auto_enabled||[]).length)log('⚙ فُعّلت تلقائياً من الكود: '+a.auto_enabled.join('، '),'i');if(a.voice&&a.voice.narration)log(`🎙 صوت مولّد من الكود (${a.voice.narration.provider}) · ${a.voice.narration.seconds}ث · ${a.voice.narration.words} كلمة — مدمج ومتزامن`,'s');else if(a.voice)log(a.voice.mixed?'🎤 صوت المقطع الأصلي: مدمج':'🎤 صوت المقطع لم يُدمج: '+a.voice.why,a.voice.mixed?'s':'h');if(a.sync)log('🎯 مزامنة ذكية: '+a.sync,'h');if(a.mean_db!=null)log(`مستوى الصوت النهائي ${a.mean_db} dB`,'i')}
    log(`اكتمل في ${((Date.now()-t0)/1000).toFixed(0)}ث · ${res.size_mb}MB`,'s')}
  }catch(e){log(e.message,'e');(e.logs||[]).forEach(l=>log('console: '+l,'e'));if(/MEDIA_MISSING/.test(e.message)){clearMedia();refreshLib()}}
  $('ov').style.display='none';busy(false);status('جاهز');S.job=null;S.starting=false}
@@ -561,12 +560,12 @@ function applyMe(){const m=ME;if(!m)return;const ac=$('acct');ac.style.display='
  $('musicOpts').style.display=$('musicTg').classList.contains('on')?'block':'none'}
 api('/api/me').then(r=>r.json()).then(m=>{ME=m;applyMe();if(m.status==='active'&&m.days_left!=null&&m.days_left<=3&&m.role!=='admin')log(`⏳ ينتهي اشتراكك خلال ${m.days_left} يوم — تواصل مع المدير للتجديد`,'h')}).catch(()=>{});
 
-async function loadKeys(){try{const r=await (await api('/api/mykeys')).json();[['ke','elevenlabs_key','ke_st'],['kf','freesound_key','kf_st'],['kg','groq_key','kg_st'],['km','minimax_key','km_st'],['ko','openai_key','ko_st']].forEach(([i,k,st])=>{$(i).value='';$(st).innerHTML=r.keys[k].set?'<span style="color:var(--ok)">مفتاحك محفوظ ••••'+esc(r.keys[k].tail)+'</span>':(r.platform[k.replace('_key','')]?'<span style="color:var(--t3)">يُستخدم مفتاح الموقع</span>':'<span style="color:var(--warn)">غير مضبوط</span>');$(i).placeholder=r.keys[k].set?'اتركه فارغاً للإبقاء · اكتب - للحذف':'الصق المفتاح'});const pl=r.plain||{};$('kmg').value=pl.minimax_group||'';$('kob').value=pl.openai_base||'';$('kom').value=pl.openai_model||''}catch(e){}}
+async function loadKeys(){try{const r=await (await api('/api/mykeys')).json();[['kgm','gemini_key','kgm_st'],['kgk','grok_key','kgk_st'],['kf','freesound_key','kf_st'],['kg','groq_key','kg_st'],['ko','openai_key','ko_st']].forEach(([i,k,st])=>{$(i).value='';$(st).innerHTML=r.keys[k].set?'<span style="color:var(--ok)">مفتاحك محفوظ ••••'+esc(r.keys[k].tail)+'</span>':(r.platform[k.replace('_key','')]?'<span style="color:var(--t3)">يُستخدم مفتاح الموقع</span>':'<span style="color:var(--warn)">غير مضبوط</span>');$(i).placeholder=r.keys[k].set?'اتركه فارغاً للإبقاء · اكتب - للحذف':'الصق المفتاح'});const pl=r.plain||{};$('kob').value=pl.openai_base||'';$('kom').value=pl.openai_model||''}catch(e){}}
 $('keysBtn').onclick=()=>{$('menu').classList.remove('on');$('kmsg').textContent='';$('keysMdl').classList.add('on');loadKeys()};
 $('kClose').onclick=()=>$('keysMdl').classList.remove('on');$('keysMdl').onclick=e=>{if(e.target===$('keysMdl'))$('keysMdl').classList.remove('on')};
-$('kSave').onclick=async()=>{const b={};[['ke','elevenlabs_key'],['kf','freesound_key'],['kg','groq_key'],['km','minimax_key'],['ko','openai_key']].forEach(([i,k])=>{const v=$(i).value.trim();if(v)b[k]=v==='-'?'':v});[['kmg','minimax_group'],['kob','openai_base'],['kom','openai_model']].forEach(([i,k])=>{b[k]=$(i).value.trim()});if(!b.elevenlabs_key&&!b.freesound_key&&!b.groq_key&&!b.minimax_key&&!b.openai_key&&!b.minimax_group&&!b.openai_base&&!b.openai_model&&!Object.keys(b).length){$('kmsg').textContent='لم تُدخل شيئاً';return}
- $('kmsg').textContent='جارٍ الحفظ والتحقق من المفتاح...';try{const R=await fetch('/api/mykeys',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const j=await R.json();if(!R.ok){$('kmsg').textContent=(j.error||j.msg||'✗ فشل الحفظ');return}$('kmsg').innerHTML='تم الحفظ ✓'+(j.check?'<br><span style="color:var('+(j.check.ok?'--ok':'--warn')+')">'+esc(j.check.msg)+'</span>':'');loadKeys()}catch(e){$('kmsg').textContent='فشل الحفظ'}};
-$('kTest').onclick=async()=>{$('kmsg').textContent='جارٍ الاختبار...';let out=[];for(const p of ['elevenlabs','freesound','groq','minimax','openai']){try{const r=await (await fetch('/api/mykeys/test/'+p,{method:'POST'})).json();if(p!=='elevenlabs'&&!r.ok&&/غير مضبوط/.test(r.msg||''))continue;out.push((r.ok&&p!=='elevenlabs'?'✓ ':'')+(r.msg||''))}catch(e){out.push('✗ '+p)}}$('kmsg').innerHTML=out.map(esc).join('<br>')};
+$('kSave').onclick=async()=>{const b={};[['kgm','gemini_key'],['kgk','grok_key'],['kf','freesound_key'],['kg','groq_key'],['ko','openai_key']].forEach(([i,k])=>{const v=$(i).value.trim();if(v)b[k]=v==='-'?'':v});const any=Object.keys(b).length;[['kob','openai_base'],['kom','openai_model']].forEach(([i,k])=>{b[k]=$(i).value.trim()});if(!any&&!b.openai_base&&!b.openai_model){$('kmsg').textContent='لم تُدخل شيئاً';return}
+ $('kmsg').textContent='جارٍ الحفظ...';try{const R=await fetch('/api/mykeys',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const j=await R.json();if(!R.ok){$('kmsg').textContent=(j.error||j.msg||'✗ فشل الحفظ');return}$('kmsg').innerHTML='تم الحفظ ✓ — اضغط «اختبار المحفوظ» للتأكد أن المفاتيح تعمل';loadKeys()}catch(e){$('kmsg').textContent='فشل الحفظ'}};
+$('kTest').onclick=async()=>{$('kmsg').textContent='جارٍ الاختبار...';let out=[];for(const p of ['gemini','grok','freesound','groq','openai']){try{const r=await (await fetch('/api/mykeys/test/'+p,{method:'POST'})).json();if(!r.ok&&/غير مضبوط/.test(r.msg||''))continue;out.push((r.ok?'✓ ':'✗ '+p+': ')+(r.msg||''))}catch(e){out.push('✗ '+p)}}$('kmsg').innerHTML=out.length?out.map(esc).join('<br>'):'لا توجد مفاتيح محفوظة للاختبار'};
 $('menuBtn').onclick=e=>{e.stopPropagation();$('menu').classList.toggle('on')};document.addEventListener('click',e=>{if(!e.target.closest('.menuwrap'))$('menu').classList.remove('on')});
 loadCfg();$('mwv').textContent=$('mw').value;$('thv').textContent=$('th').value+'dB';$('msv').textContent=(+$('msil').value).toFixed(2)+'ث';markPreset();syncTime();
 api('/api/health').then(r=>r.json()).then(h=>{S.gpu=!!h.gpu;if(h.cloud)log('☁️ الرندر السريع مفعّل','s');else $('cloudTg').parentElement.style.display='none';log('الاستوديو جاهز','s');if(!h.gpu&&!lsGet('sa_cfg'))$('model').value='small';syncTime()}).catch(e=>log(e.message,'e'));
@@ -1654,14 +1653,6 @@ def transcribe_task(jid, path, lang, model_name, mw, name):
 def _transcribe_task(jid, path, lang, model_name, mw, name):
     try:
         words, language, dev = None, None, "CPU"
-        try:
-            _ek = PLATFORM.setting("elevenlabs_key") if PLATFORM else ""
-            if _ek and os.path.getsize(path) < 900*1024*1024:
-                import sa_eleven
-                JOBS[jid].update(stage="تفريغ (ElevenLabs Scribe)", progress=10)
-                _w, _l = sa_eleven.stt_words(_ek, path, lang)
-                if _w: words, language, dev = _w, _l, "ElevenLabs"
-        except Exception as e: print("ElevenLabs ASR failed:", e, flush=True); JOBS[jid]["note"] = "ElevenLabs: " + str(e)[:100]
         try:
             _g = sa_tts.groq_words(PLATFORM, path, lang) if (PLATFORM and words is None) else None
             if _g and _g[0]: words, language = _g; dev = "Groq"
