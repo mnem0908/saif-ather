@@ -17,9 +17,15 @@ else:
 os.makedirs(W, exist_ok=True)
 SUDO = "" if (hasattr(os, "geteuid") and os.geteuid() == 0) else "sudo -n "
 
-def sh(cmd, cwd=None):
-    r = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
-    return r.returncode, (r.stdout or "") + (r.stderr or "")
+def sh(cmd, cwd=None, timeout=None):
+    try:
+        r = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except subprocess.TimeoutExpired:
+        print("⏱ انتهت مهلة أمر:", cmd[:80], flush=True)
+        return 124, "timeout"
+APT = "-o DPkg::Lock::Timeout=90 -o Acquire::Retries=2 -o Acquire::http::Timeout=25 -o Acquire::https::Timeout=25 "
+
 
 print("🎬 جاري بناء وتجهيز SA Motion Studio v11.0 ...")
 for pat in ["python3 [a]pp.py"] + ([] if os.environ.get("SA_NO_TUNNEL") else ["[c]loudflared tunnel"]) + ["[r]ender.cjs", "[c]hrome-headless-shell"]:
@@ -41,17 +47,19 @@ for p in PKGS:
     seen.add(grp)
     if not any(dpkg_has(x) for x in grp): need.append(grp)
 if need:
-    sh(f"{SUDO}apt-get update -qq")
+    print("   حزم ناقصة:", " ".join(g[0] for g in need), flush=True)
+    sh(f"{SUDO}apt-get {APT}update -qq", timeout=180)
     for grp in need:
         for p in grp:
-            rc, _ = sh(f"{SUDO}DEBIAN_FRONTEND=noninteractive apt-get install -y -qq {p}")
+            rc, _ = sh(f"{SUDO}DEBIAN_FRONTEND=noninteractive apt-get {APT}install -y -qq --no-install-recommends {p}", timeout=240)
+            print("   ", p, "✓" if rc == 0 else "✗", flush=True)
             if rc == 0: break
-    sh("fc-cache -f")
+    sh("fc-cache -f", timeout=120)
 
 import importlib.util
 if not all(importlib.util.find_spec(m) for m in ("flask", "requests", "faster_whisper", "cryptography", "edge_tts")):
     print("🐍 تثبيت مكتبات Python (flask, requests, faster-whisper) ...")
-    sh(f"{sys.executable} -m pip install -q flask requests cryptography edge-tts 'faster-whisper==1.1.1'")
+    sh(f"{sys.executable} -m pip install -q --disable-pip-version-check flask requests cryptography edge-tts 'faster-whisper==1.1.1'", timeout=900)
 
 def node_major():
     try:
@@ -61,7 +69,7 @@ def node_major():
         return 0
 if node_major() < 18:
     print("🟢 ترقية Node.js إلى الإصدار 20 ...")
-    sh(f"curl -fsSL https://deb.nodesource.com/setup_20.x | {SUDO}bash - && {SUDO}apt-get install -y -qq nodejs")
+    sh(f"curl -fsSL https://deb.nodesource.com/setup_20.x | {SUDO}bash - && {SUDO}apt-get {APT}install -y -qq nodejs", timeout=420)
 print("Node:", subprocess.run(["node", "-v"], capture_output=True, text=True).stdout.strip())
 
 for d in ['src', 'out', 'public', 'public/audio', 'uploads', 'sfx_cache']:
@@ -75,7 +83,7 @@ def pv(name):
 
 if not os.path.exists("package.json"): sh("npm init -y")
 FLAGS = "--no-audit --no-fund --loglevel=error --legacy-peer-deps"
-if not pv("remotion"): sh(f"npm install {FLAGS} remotion@4")
+if not pv("remotion"): sh(f"npm install {FLAGS} remotion@4", timeout=900)
 ver = pv("remotion")
 RPK = ["@remotion/cli", "@remotion/bundler", "@remotion/renderer", "@remotion/google-fonts", "@remotion/transitions"]
 react_ok = all((pv(p) or "0").split(".")[0] == "19" for p in ("react", "react-dom"))
@@ -84,7 +92,8 @@ if ver and (not react_ok or any(pv(p) != ver for p in RPK)):
     shutil.rmtree("node_modules/.cache", ignore_errors=True)
     rc, out = sh(f"npm install {FLAGS} " + " ".join(f"{p}@{ver}" for p in RPK) + " react@19 react-dom@19")
     if rc != 0: print(out[-1500:])
-sh("npx remotion browser ensure")
+print("🌐 التأكد من متصفح الرندر ...", flush=True)
+sh("npx remotion browser ensure", timeout=600)
 print("Remotion:", pv("remotion"), "| React:", pv("react"), "| esbuild:", pv("esbuild"))
 
 open('tsconfig.json', 'w').write(json.dumps({
