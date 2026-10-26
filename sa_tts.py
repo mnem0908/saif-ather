@@ -234,7 +234,8 @@ def list_voices(P, prov):
             return c[1]
         try:
             r = requests.get(__import__("sa_eleven").BASE + "/v1/voices", headers={"xi-api-key": P.setting("elevenlabs_key")}, timeout=20)
-            vs = [(v["voice_id"], v["name"] + (" — " + (v.get("labels") or {}).get("accent", "") if (v.get("labels") or {}).get("accent") else "")) for v in r.json().get("voices", [])]
+            raw = sorted(r.json().get("voices", []), key=lambda v: 0 if v.get("category") == "premade" else 1)
+            vs = [(v["voice_id"], v["name"] + (" — " + (v.get("labels") or {}).get("accent", "") if (v.get("labels") or {}).get("accent") else "")) for v in raw]
             if vs:
                 _voice_cache["el"] = (time.time(), vs)
                 return vs
@@ -250,7 +251,14 @@ def test_provider(P, prov):
         k = P.setting("elevenlabs_key")
         if not k: return {"ok": False, "msg": "لم تُدخل مفتاح ElevenLabs بعد"}
         pr = sa_eleven.probe(k)
-        return {"ok": pr["valid"], "msg": sa_eleven.summary(pr), "caps": pr["caps"]}
+        if not pr["valid"]:
+            return {"ok": False, "msg": sa_eleven.summary(pr), "caps": pr["caps"]}
+        try:
+            a, _t = synth_eleven("Hello.", list_voices(P, "elevenlabs")[0][0], 1.0, P)
+            extra = f" — توليد الصوت يعمل ✓ ({len(a) // 1024}KB)"
+        except Exception as e:
+            extra = " — ⚠ توليد الصوت غير متاح: " + str(e)[:160] + " (سيُستخدم صوت مجاني بديل تلقائياً)"
+        return {"ok": True, "msg": sa_eleven.summary(pr) + extra, "caps": pr["caps"]}
     if prov == "freesound":
         k = P.setting("freesound_key")
         if not k: return {"ok": False, "msg": "المفتاح غير مضبوط"}
@@ -360,13 +368,30 @@ def _pick_voice(P, prov, want, lang, gender):
 
 
 def narrate(host, P, J, jid, lines, opts):
-    """Generate the narration described in code. Returns dict(path, words, segments, scenes, end, provider, voice, chars)."""
+    """Generate the narration; if the chosen provider fails, fall back to the next available one (with a note)."""
     avail = [p["id"] for p in available(P)]
-    prov = opts.get("provider") if opts.get("provider") in avail else None
-    if not prov:
-        prov = next((x for x in ("elevenlabs", "edge", "openai", "minimax") if x in avail), None)
-    if not prov:
-        raise RuntimeError("لا يوجد مزوّد صوت متاح: أضف مفتاح ElevenLabs من «مفاتيحي الخاصة».")
+    first = opts.get("provider") if opts.get("provider") in avail else None
+    chain = ([first] if first else []) + [x for x in ("elevenlabs", "edge", "openai", "minimax") if x in avail and x != first]
+    if not chain:
+        raise RuntimeError("لا يوجد مزوّد صوت متاح: أضف مفتاح ElevenLabs أو غيره من «مفاتيحي الخاصة».")
+    notes, last = [], None
+    for prov in chain:
+        try:
+            res = _narrate(host, P, J, jid, lines, opts, prov)
+            res["notes"] = notes
+            return res
+        except RuntimeError as e:
+            if "الإلغاء" in str(e):
+                raise
+            last = e
+            notes.append(f"{prov}: {str(e)[:200]}" + (" — جارٍ استخدام مزوّد آخر" if prov != chain[-1] else ""))
+        except Exception as e:
+            last = e
+            notes.append(f"{prov}: {str(e)[:200]}")
+    raise RuntimeError("تعذّر توليد الصوت عبر كل المزوّدين: " + " | ".join(notes))
+
+
+def _narrate(host, P, J, jid, lines, opts, prov):
     lang = (opts.get("lang") or "ar")[:2].lower()
     base_speed = max(0.7, min(1.25, float(opts.get("speed") or 1.0)))
     gap = max(0.05, min(2.0, float(opts.get("gap") if opts.get("gap") is not None else 0.35)))

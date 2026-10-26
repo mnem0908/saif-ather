@@ -54,12 +54,17 @@ def explain(r):
         return "المفتاح صحيح لكن ينقصه صلاحية" + (f" ({m.group(1)})" if m else "")
     if r.status_code == 401:
         return "المفتاح مرفوض (401)"
-    if r.status_code == 402 or status in ("quota_exceeded", "payment_required"):
-        return "انتهى رصيد حسابك في ElevenLabs"
+    low = (msg or "").lower()
+    if status == "quota_exceeded" or "quota" in low and "exceed" in low:
+        return "انتهى رصيد (credits) حسابك في ElevenLabs"
+    if "library voice" in low or "voice library" in low:
+        return "الباقة المجانية لا تسمح بأصوات المكتبة عبر API — اختر صوتاً من «My Voices» (الأصوات الافتراضية) أو رقِّ الباقة"
+    if r.status_code == 402 or status in ("paid_plan_required", "payment_required", "payment_issue"):
+        return "هذه الميزة/الصوت تتطلب باقة مدفوعة في ElevenLabs" + (f" ({msg[:90]})" if msg else "")
     if r.status_code == 429:
         return "تجاوزت حد الطلبات المتزامنة/السريعة، حاول بعد قليل"
-    if status in ("paid_plan_required", "payment_issue") or r.status_code == 403:
-        return "هذه الميزة تتطلب باقة مدفوعة في ElevenLabs"
+    if r.status_code == 403:
+        return "ElevenLabs رفض الطلب (403)" + (f": {msg[:90]}" if msg else "")
     return f"HTTP {r.status_code}: {(msg or r.text)[:140]}"
 
 
@@ -138,19 +143,28 @@ def _cache_path(host, tag, text, extra=""):
     return f"{d}/el_{tag}_{hashlib.sha1((text + '|' + extra).encode()).hexdigest()[:16]}.mp3"
 
 
-def available(key):
-    return time.time() >= DOWN.get(_kid(key), (0, ""))[0]
+def available(key, feat=""):
+    now = time.time()
+    return now >= DOWN.get(_kid(key), (0, ""))[0] and now >= DOWN.get(_kid(key) + ":" + feat, (0, ""))[0]
 
 
-def _down(key, r):
-    if r.status_code in (401, 402, 403, 429):
-        DOWN[_kid(key)] = (time.time() + (120 if r.status_code == 429 else 900), explain(r))
+def _down(key, r, feat=""):
+    """pause a key after a hard failure: account-wide for bad key/quota/rate-limit, only that feature for plan restrictions"""
+    why = explain(r)
+    if r.status_code in (401, 429) or "رصيد" in why:
+        DOWN[_kid(key)] = (time.time() + (120 if r.status_code == 429 else 900), why)
+    elif r.status_code in (402, 403):
+        DOWN[_kid(key) + ":" + feat] = (time.time() + 900, why)
+
+
+def down_reason(key, feat=""):
+    return (DOWN.get(_kid(key)) or DOWN.get(_kid(key) + ":" + feat) or (0, ""))[1]
 
 
 def sfx(host, key, text, duration=None):
     """-> (path, source). Raises RuntimeError with an Arabic reason."""
-    if not available(key):
-        raise RuntimeError("ElevenLabs متوقف مؤقتاً: " + DOWN[_kid(key)][1])
+    if not available(key, "sfx"):
+        raise RuntimeError("ElevenLabs متوقف مؤقتاً: " + down_reason(key, "sfx"))
     text = (text or "").strip()[:200]
     dur = None if duration is None else max(0.5, min(10.0, float(duration)))
     fn = _cache_path(host, "sfx", text, str(dur))
@@ -161,7 +175,7 @@ def sfx(host, key, text, duration=None):
         body["duration_seconds"] = dur
     r = requests.post(BASE + "/v1/sound-generation", params={"output_format": "mp3_44100_128"}, headers=_hdr(key), json=body, timeout=60)
     if r.status_code != 200 or len(r.content) < 800:
-        _down(key, r)
+        _down(key, r, "sfx")
         raise RuntimeError(explain(r))
     open(fn, "wb").write(r.content)
     return fn, "ElevenLabs"
@@ -173,15 +187,15 @@ def music(host, key, style, seconds, prompt=None):
     prompt = (prompt or "").strip()[:600] or MUSIC_PROMPTS.get(style) or MUSIC_PROMPTS["chill"]
     if prompt and "instrumental" not in prompt.lower() and "vocals" not in prompt.lower():
         prompt += ", instrumental"
-    if not available(key):
-        raise RuntimeError("ElevenLabs متوقف مؤقتاً: " + DOWN[_kid(key)][1])
+    if not available(key, "music"):
+        raise RuntimeError("ElevenLabs متوقف مؤقتاً: " + down_reason(key, "music"))
     fn = _cache_path(host, "mus", prompt, str(out_len))
     if os.path.exists(fn) and os.path.getsize(fn) > 5000:
         return fn, "ElevenLabs Music (cache)"
     r = requests.post(BASE + "/v1/music", params={"output_format": "mp3_44100_128"}, headers=_hdr(key),
                       json={"prompt": prompt, "music_length_ms": out_len, "force_instrumental": True}, timeout=240)
     if r.status_code != 200 or len(r.content) < 5000:
-        _down(key, r)
+        _down(key, r, "music")
         raise RuntimeError(explain(r))
     open(fn, "wb").write(r.content)
     return fn, "ElevenLabs Music"
@@ -189,15 +203,15 @@ def music(host, key, style, seconds, prompt=None):
 
 def stt_words(key, path, lang=""):
     """ElevenLabs Scribe -> (words[{text,start,end}], language)"""
-    if not available(key):
-        raise RuntimeError("ElevenLabs متوقف مؤقتاً: " + DOWN[_kid(key)][1])
+    if not available(key, "stt"):
+        raise RuntimeError("ElevenLabs متوقف مؤقتاً: " + down_reason(key, "stt"))
     data = {"model_id": "scribe_v1", "timestamps_granularity": "word", "tag_audio_events": "false"}
     if lang:
         data["language_code"] = lang
     with open(path, "rb") as f:
         r = requests.post(BASE + "/v1/speech-to-text", headers=_hdr(key, None), data=data, files={"file": (os.path.basename(path), f, "audio/wav")}, timeout=600)
     if r.status_code != 200:
-        _down(key, r)
+        _down(key, r, "stt")
         raise RuntimeError(explain(r))
     j = r.json()
     words = [{"text": w["text"].strip(), "start": round(float(w["start"]), 3), "end": round(float(w["end"]), 3)}

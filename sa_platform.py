@@ -31,7 +31,9 @@ DEFAULT_PLANS = {
 }
 DEFAULT_SETTINGS = {"site_name": "SA Motion Studio", "public_url": "", "maintenance": False, "maintenance_msg": "الموقع تحت الصيانة، عُد بعد قليل.",
                     "max_cloud": 12, "cloud_slots": 15, "sec_per_machine": 10, "default_plan": "pro", "welcome": "", "share_kicks": 6}
-USER_KEYS = ("freesound_key", "groq_key", "elevenlabs_key", "minimax_key", "openai_key")
+USER_PLAIN = {"minimax_group": r"[A-Za-z0-9_\-]{4,40}", "minimax_base": r"https://[A-Za-z0-9\.\-]{3,80}(:\d{2,5})?", "minimax_model": r"[A-Za-z0-9_\.\-:/]{1,60}",
+              "openai_base": r"https://[A-Za-z0-9\.\-]{3,80}(:\d{2,5})?(/[A-Za-z0-9_\.\-/]{0,60})?", "openai_model": r"[A-Za-z0-9_\.\-:/]{1,60}"}
+USER_KEYS = ("freesound_key", "groq_key", "elevenlabs_key", "minimax_key", "openai_key") + tuple(USER_PLAIN)
 USER_KEY_UI = ("elevenlabs_key", "freesound_key", "groq_key")
 SECRET_KEYS = ["freesound_key", "elevenlabs_key", "minimax_key", "openai_key", "groq_key"]
 PLAIN_KEYS = ["minimax_group", "minimax_base", "openai_base", "openai_model", "tts_default", "minimax_model", "elevenlabs_model"]
@@ -848,6 +850,15 @@ def register(app):
                         cur[k] = v
                     else:
                         return jerr("صيغة المفتاح غير صحيحة (أحرف وأرقام وشرطات فقط).", 400)
+            for k, rx in USER_PLAIN.items():
+                if k in d and isinstance(d[k], str):
+                    v = d[k].strip().rstrip("/")
+                    if not v:
+                        cur.pop(k, None)
+                    elif re.fullmatch(rx, v):
+                        cur[k] = v
+                    else:
+                        return jerr(f"قيمة غير صحيحة: {k}", 400)
             P.db.put("state", "keys:" + uid, cur)
             P.audit("mykeys", uid, "", ",".join(sorted(cur)), P.ip())
             check = None
@@ -861,11 +872,12 @@ def register(app):
         site = P.settings()
         return jsonify({"check": check if request.method == "PUT" else None,
                         "keys": {k: {"set": bool(cur.get(k)), "tail": (cur.get(k) or "")[-4:]} for k in USER_KEY_UI},
+                        "plain": {k: cur.get(k, "") for k in USER_PLAIN},
                         "platform": {k.replace("_key", ""): bool(site.get(k)) for k in USER_KEY_UI}})
 
     @app.route("/api/mykeys/test/<prov>", methods=["POST"])
     def api_mykeys_test(prov):
-        if prov not in ("elevenlabs", "freesound", "groq"):
+        if prov not in ("elevenlabs", "freesound", "groq", "minimax", "openai"):
             return jerr("bad", 400)
         if P.rate(f"keytest:{P.uid()}", 12, 60):
             return jerr("تمهّل قليلاً", 429)
