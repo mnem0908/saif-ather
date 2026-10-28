@@ -230,15 +230,18 @@ def render(host, jid, d, J, props, mfile, mtype, out):
         J.update(stage="رفع الملفات إلى السحابة", progress=2, details="")
         rid = release_id(gh)
         sweep(gh, rid)
-        media = None
-        if mfile:
-            safe = re.sub(r"[^A-Za-z0-9_.-]", "_", mfile)
-            aid, murl = upload(gh, rid, f"{W}/public/{mfile}", f"{jid}_{safe}")
-            assets.append(aid); media = {"file": mfile, "type": mtype, "url": murl}
+        media, medias = None, []
+        fl = [f for f in (props.get("files") or []) if f.get("file")] or ([{"file": mfile, "type": mtype}] if mfile else [])
+        for f in fl[:6]:
+            safe = re.sub(r"[^A-Za-z0-9_.-]", "_", f["file"])
+            aid, murl = upload(gh, rid, f"{W}/public/{f['file']}", f"{jid}_{safe}")
+            assets.append(aid); medias.append({"file": f["file"], "type": f.get("type"), "url": murl})
+            if J.get("cancelled"): raise RuntimeError("تم الإلغاء")
+        media = next((m for m in medias if m["file"] == mfile), None) or (medias[0] if medias else None)
         if J.get("cancelled"): raise RuntimeError("تم الإلغاء")
         job_doc = {"code": d.get("code", ""), "comp": {"name": comp["name"], "default": bool(comp.get("default"))},
                    "config": {"width": cfg["width"], "height": cfg["height"], "fps": fps, "frames": frames},
-                   "props": props, "media": media, "packages": packages(host, d.get("code", ""))}
+                   "props": props, "media": media, "medias": medias, "packages": packages(host, d.get("code", ""))}
         jpath = f"{W}/out/{jid}_job.json"; tmp.append(jpath)
         json.dump(job_doc, open(jpath, "w", encoding="utf-8"), ensure_ascii=False)
         aid, job_url = upload(gh, rid, jpath, f"{jid}_job.json"); assets.append(aid)

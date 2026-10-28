@@ -341,7 +341,7 @@ textarea.code{background:#fffdfb;color:#3b2a22}.edbar{background:#fff}
   <div class="qk" id="qk"><span class="qc" data-v="5">5ث</span><span class="qc" data-v="10">10ث</span><span class="qc" data-v="15">15ث</span><span class="qc" data-v="30">30ث</span><span class="qc" data-v="60">60ث</span><span class="qc" data-v="media" id="qMedia" style="display:none">طول الملف</span></div>
   <div class="hint" id="durHint">بدون GPU: 30fps أسرع بمرتين من 60fps.</div></div>
  <div class="card"><h3><b>02</b>مكتبة الوسائط</h3>
-  <div class="drop" id="drop"><b>اضغط أو اسحب الملف</b>MP3 · WAV · M4A · MP4 · MOV · WEBM</div><input type="file" id="file" accept="audio/*,video/*" hidden>
+  <div class="drop" id="drop"><b>اضغط أو اسحب الملفات (يمكن رفع فيديو + صوت معاً)</b>MP3 · WAV · M4A · MP4 · MOV · WEBM</div><input type="file" id="file" accept="audio/*,video/*" multiple hidden>
   <div class="hint" id="minfo"></div><div class="lib" id="lib"></div>
   <div class="switch">دمج صوت الملف تلقائياً<div class="tg on" id="voiceTg"></div></div>
   <div class="switch">رندر سريع موزّع<div class="tg on" id="cloudTg"></div></div>
@@ -385,7 +385,7 @@ textarea.code{background:#fffdfb;color:#3b2a22}.edbar{background:#fff}
 </div>
 <script>
 const $=id=>document.getElementById(id);
-const S={media:null,words:[],segments:[],job:null,gpu:null};
+const S={media:null,sel:[],words:[],segments:[],job:null,gpu:null};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
 const lsGet=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
@@ -468,39 +468,54 @@ $('checkBtn').onclick=async()=>{if(!code.value.trim())return log('الكود ف�
  if(!(sv&&sv.trim()&&/export/.test(sv))){try{const st=await (await fetch('/api/state')).json();if(st.code&&/export/.test(st.code)){sv=st.code;if(st.cfg&&Object.keys(st.cfg).length){lsSet('sa_cfg',JSON.stringify(st.cfg));loadCfg();syncTime()}}}catch(e){}}
  if(sv&&sv.trim()&&!/^\s*<(!doctype|html)/i.test(sv)&&/export/.test(sv))code.value=sv;else loadTpl('showcase')})();
 async function refreshLib(){let L=[];try{L=(await (await api('/api/media')).json()).items}catch(e){log('تعذّر جلب المكتبة: '+e.message,'e')}
- $('lib').innerHTML=L.map(m=>`<div class="mi ${S.media&&S.media.file===m.file?'on':''}"><span>${m.type==='video'?'🎬':'🎵'}</span><span class="nm" title="${esc(m.original)}">${esc(m.original)} · ${m.duration.toFixed(1)}ث</span><button type="button" data-u="${esc(m.file)}">استخدام</button><button type="button" class="del" data-d="${esc(m.file)}">حذف</button></div>`).join('')||'<div class="hint">لا توجد ملفات</div>';
- $('lib').querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>useMedia(L.find(x=>x.file===b.dataset.u),true));
+ $('lib').innerHTML=L.map(m=>{const k=S.sel.findIndex(x=>x.file===m.file);return `<div class="mi ${k>=0?'on':''}"><span>${m.type==='video'?'🎬':'🎵'}</span><span class="nm" title="${esc(m.original)}">${esc(m.original)} · ${m.duration.toFixed(1)}ث</span><button type="button" data-u="${esc(m.file)}">${k>=0?'✓ '+(k+1)+' · إلغاء':'＋ استخدام'}</button><button type="button" class="del" data-d="${esc(m.file)}">حذف</button></div>`}).join('')||'<div class="hint">لا توجد ملفات</div>';
+ S.sel=S.sel.map(x=>L.find(y=>y.file===x.file)||x);
+ $('lib').querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>toggleMedia(L.find(x=>x.file===b.dataset.u)));
  $('lib').querySelectorAll('[data-d]').forEach(b=>b.onclick=async()=>{if(!confirm('حذف الملف نهائياً؟'))return;
   try{await api('/api/media/'+encodeURIComponent(b.dataset.d),{method:'DELETE'})}catch(e){return log('فشل الحذف: '+e.message,'e')}
-  if(S.media&&S.media.file===b.dataset.d)clearMedia();
+  S.sel=S.sel.filter(x=>x.file!==b.dataset.d);if(S.media&&S.media.file===b.dataset.d){S.media=null}applySel(false);
   log('تم الحذف','s');refreshLib()});
  return L}
-function clearMedia(){S.media=null;S.words=[];S.segments=[];lsSet('sa_media','');$('trBox').style.display='none';$('srtBtn').style.display='none';$('trBtn').disabled=true;$('cutBtn').disabled=true;$('minfo').textContent='';$('qMedia').style.display='none';syncTime()}
-function useMedia(r,setDuration){if(!r)return;S.media=r;S.words=r.words||[];S.segments=r.segments||[];lsSet('sa_media',r.file);
- $('minfo').textContent=`المحدد: ${r.original} · ${r.duration.toFixed(1)}ث${r.width?` · ${r.width}×${r.height}`:''}`;
+function clearMedia(){S.sel=[];S.media=null;S.words=[];S.segments=[];lsSet('sa_media','');lsSet('sa_sel','[]');$('trBox').style.display='none';$('srtBtn').style.display='none';$('trBtn').disabled=true;$('cutBtn').disabled=true;$('minfo').textContent='';$('qMedia').style.display='none';syncTime()}
+// الاختيار المتعدد: فيديو + صوت (أو أكثر من مقطع) يُرسلون كلهم للرندر — لا يُستبدل ملف بآخر
+function toggleMedia(r){if(!r)return;const k=S.sel.findIndex(x=>x.file===r.file);
+ if(k>=0)S.sel.splice(k,1);else{if(S.sel.length>=6)return log('الحد الأقصى 6 ملفات في المشروع الواحد','e');S.sel.push(r)}
+ applySel(true)}
+function addMedia(r){if(!r)return;if(!S.sel.some(x=>x.file===r.file)&&S.sel.length<6)S.sel.push(r);else S.sel=S.sel.map(x=>x.file===r.file?r:x);applySel(true)}
+function replaceMedia(oldFile,r){S.sel=S.sel.map(x=>x.file===oldFile?r:x);applySel(true)}
+function applySel(setDuration){
+ const au=S.sel.find(x=>x.type==='audio'),vd=S.sel.find(x=>x.type==='video');
+ const sp=au||vd||null;                 // مصدر الكلام (للتفريغ والمدة): الصوت المرفوع أولاً وإلا صوت الفيديو
+ const changed=(S.media&&S.media.file)!==(sp&&sp.file);
+ S.media=sp;lsSet('sa_media',sp?sp.file:'');lsSet('sa_sel',JSON.stringify(S.sel.map(x=>x.file)));
+ if(changed||!sp){S.words=sp&&sp.words||[];S.segments=sp&&sp.segments||[]}
+ if(!sp){$('trBox').style.display='none';$('srtBtn').style.display='none';$('trBtn').disabled=true;$('cutBtn').disabled=true;$('minfo').textContent='';$('qMedia').style.display='none';syncTime();refreshLib();return}
+ const parts=S.sel.map((x,i)=>`${i+1}) ${x.type==='video'?'🎬':'🎵'} ${x.original} · ${x.duration.toFixed(1)}ث`);
+ $('minfo').textContent=(S.sel.length>1?'المحدد معاً — ':'المحدد: ')+parts.join('  +  ')+(vd&&au?'  ← الصورة من الفيديو والصوت من الملف الصوتي':'');
  $('qMedia').style.display='inline-block';
- if(setDuration!==false)setDur(r.duration);
- if(r.type==='video'&&r.width){$('w').value=r.width;$('h').value=r.height;markPreset();saveCfg()}
- $('trBtn').disabled=!r.has_audio||!hasF('transcribe');$('cutBtn').disabled=!r.has_audio||!hasF('cut');
+ if(setDuration!==false)setDur(sp.duration);
+ if(vd&&vd.width){$('w').value=vd.width;$('h').value=vd.height;markPreset();saveCfg()}
+ $('trBtn').disabled=!sp.has_audio||!hasF('transcribe');$('cutBtn').disabled=!sp.has_audio||!hasF('cut');
  if(S.segments.length)showTr();else{$('trBox').style.display='none';$('srtBtn').style.display='none'}
  syncTime();refreshLib()}
+function useMedia(r,setDuration){if(!r)return;addMedia(r)}
 const drop=$('drop');drop.onclick=()=>$('file').click();
 ['dragover','dragenter'].forEach(e=>drop.addEventListener(e,v=>{v.preventDefault();drop.classList.add('drag')}));
 ['dragleave','drop'].forEach(e=>drop.addEventListener(e,v=>{v.preventDefault();drop.classList.remove('drag')}));
-drop.addEventListener('drop',e=>e.dataTransfer.files[0]&&upload(e.dataTransfer.files[0]));
-$('file').onchange=e=>{e.target.files[0]&&upload(e.target.files[0]);e.target.value=''};
+drop.addEventListener('drop',async e=>{for(const f of [...e.dataTransfer.files])await upload(f)});
+$('file').onchange=async e=>{const fl=[...e.target.files];e.target.value='';for(const f of fl)await upload(f)};
 async function upload(f){const CH=8*1024*1024,total=Math.max(1,Math.ceil(f.size/CH));const uid=Math.random().toString(36).slice(2,14)+Date.now().toString(36);
  status('رفع',1);let jid=null;
  try{for(let i=0;i<total;i++){const fd=new FormData();fd.append('uid',uid);fd.append('idx',i);fd.append('total',total);fd.append('size',CH);fd.append('name',f.name);fd.append('chunk',f.slice(i*CH,(i+1)*CH));
    let r,tries=0;while(true){try{r=await fetch('/api/upload',{method:'POST',body:fd});if(r.ok)break;if([401,403,429].includes(r.status)){const j=await r.json().catch(()=>({}));if(r.status===401)location.href='/login';throw {fatal:(j.error||await r.text().catch(()=>'')||'غير مسموح')}}}catch(e){if(e&&e.fatal)throw new Error(e.fatal)}if(++tries>4)throw new Error('فشل رفع الجزء '+(i+1)+' من '+total);await new Promise(z=>setTimeout(z,1500))}
    const j=await r.json();if(j.job_id)jid=j.job_id;$('minfo').textContent=`رفع ${Math.round((i+1)/total*100)}%`}
   if(!jid)throw new Error('لم يبدأ الخادم معالجة الملف');
-  const r=await waitJob(jid,j=>$('minfo').textContent=`${j.stage||''} ${j.progress||0}%`);useMedia(r,true);log('تم الرفع: '+r.original,'s');
+  const r=await waitJob(jid,j=>$('minfo').textContent=`${j.stage||''} ${j.progress||0}%`);addMedia(r);log('تم الرفع وإضافته للمشروع: '+r.original,'s');
  }catch(e){log('فشل الرفع: '+e.message,'e');$('minfo').textContent='فشل الرفع'}status('جاهز')}
 $('cutBtn').onclick=async()=>{if(!S.media)return;status('قص الصمت',1);$('cutBtn').disabled=true;
  try{const r=await postJ('/api/cut_silence',{file:S.media.file,th:num($('th').value,-35),min_sil:num($('msil').value,0.45)});
   const res=await waitJob((await r.json()).job_id,j=>$('cutBtn').textContent=`${j.stage} ${j.progress||0}%`);
-  useMedia(res,true);log(`تم القص: ${res.removed.toFixed(1)}ث صمت حُذفت. فرّغ الصوت من جديد.`,'s')}catch(e){log('فشل القص: '+e.message,'e')}
+  replaceMedia(S.media.file,res);log(`تم القص: ${res.removed.toFixed(1)}ث صمت حُذفت. فرّغ الصوت من جديد.`,'s')}catch(e){log('فشل القص: '+e.message,'e')}
  $('cutBtn').textContent='قص الصمت (Jump Cut)';$('cutBtn').disabled=!(S.media&&S.media.has_audio&&hasF('cut'));status('جاهز')};
 async function regroup(){if(!S.words.length)return;try{S.segments=(await (await postJ('/api/segments',{words:S.words,max_words:+$('mw').value,file:S.media&&S.media.file})).json()).segments;showTr()}catch(e){log('فشل إعادة التقسيم: '+e.message,'e')}}
 function showTr(){$('trBox').innerHTML=S.segments.map(s=>`<div class="seg"><time>${s.start.toFixed(2)}</time>${esc(s.text)}</div>`).join('');$('trBox').style.display='block';$('srtBtn').style.display=S.segments.length?'flex':'none'}
@@ -515,13 +530,13 @@ $('srtBtn').onclick=()=>{const f=t=>{const ms=Math.max(0,Math.round(t*1000)),p=(
  a.href=URL.createObjectURL(new Blob(['\ufeff'+txt],{type:'text/plain;charset=utf-8'}));a.download='captions.srt';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000)};
 function busy(on){$('renderBtn').disabled=on;$('stillBtn').disabled=on}
 async function runJob(mode){if(S.job||S.starting)return;if(!code.value.trim())return log('الكود فارغ','e');save();
- if(mode==='video'&&!S.media&&/mediaSrc|videoSrc|mediaUrl|segments|Captions|Kinetic/.test(code.value)&&!confirm('لم تختر ملفاً (فيديو/صوت) بينما التصميم يعتمد عليه، وقد يخرج الفيديو أسود/فارغاً.\nهل تريد المتابعة؟'))return;
+ if(mode==='video'&&!S.sel.length&&/mediaSrc|videoSrc|mediaUrl|segments|Captions|Kinetic|clips/.test(code.value)&&!confirm('لم تختر ملفاً (فيديو/صوت) بينما التصميم يعتمد عليه، وقد يخرج الفيديو أسود/فارغاً.\nهل تريد المتابعة؟'))return;
  if(mode==='video'&&S.media&&!S.segments.length&&hasF('transcribe')&&/segments|Captions|Kinetic|words/.test(code.value)){S.starting=true;busy(true);log('لا يوجد تفريغ للصوت — سأفرّغه تلقائياً قبل الرندر لتظهر الترجمة','h');try{await doTranscribe()}catch(e){}S.starting=false;busy(false)}
  const fps=getFps(),dur=getDur(),frames=totalFrames(),[crf,preset]=$('q').value.split('|');
  const w=clamp(Math.round(num($('w').value,1080)),64,4096),h=clamp(Math.round(num($('h').value,1920)),64,4096);
  const t=clamp(num($('stillT').value,0),0,(frames-1)/fps);
  const body={mode,time:t,code:code.value,config:{width:w,height:h,fps,frames,crf:+crf,preset},
-  media:S.media,words:S.words,segments:S.segments,voice:$('voiceTg').classList.contains('on'),cloud:$('cloudTg').classList.contains('on'),
+  media:S.media,medias:S.sel,words:S.words,segments:S.segments,voice:$('voiceTg').classList.contains('on'),cloud:$('cloudTg').classList.contains('on'),
   sfx:{enabled:$('sfxTg').classList.contains('on')},music:{enabled:$('musicTg').classList.contains('on'),style:$('musicStyle').value}};
  S.starting=true;busy(true);$('ov').style.display='flex';$('ovF').style.width='0';$('ovP').textContent='0%';$('ovT').textContent='جاري التحضير';$('ovD').textContent='';$('cancelBtn').disabled=false;status(mode==='still'?'لقطة':'رندر',1);go('out');
  log(mode==='still'?`لقطة عند ${t.toFixed(2)}s (إطار ${Math.round(t*fps)})`:`رندر ${w}×${h} @${fps}fps · ${frames} إطار · ${dur.toFixed(2)}ث`,'h');const t0=Date.now();
@@ -568,7 +583,7 @@ $('kTest').onclick=async()=>{$('kmsg').textContent='جارٍ الاختبار...
 $('menuBtn').onclick=e=>{e.stopPropagation();$('menu').classList.toggle('on')};document.addEventListener('click',e=>{if(!e.target.closest('.menuwrap'))$('menu').classList.remove('on')});
 loadCfg();$('mwv').textContent=$('mw').value;$('thv').textContent=$('th').value+'dB';$('msv').textContent=(+$('msil').value).toFixed(2)+'ث';markPreset();syncTime();
 api('/api/health').then(r=>r.json()).then(h=>{S.gpu=!!h.gpu;if(h.cloud)log('☁️ الرندر السريع مفعّل','s');else $('cloudTg').parentElement.style.display='none';log('الاستوديو جاهز','s');if(!h.gpu&&!lsGet('sa_cfg'))$('model').value='small';syncTime()}).catch(e=>log(e.message,'e'));
-refreshLib().then(L=>{const last=lsGet('sa_media');const m=last&&L.find(x=>x.file===last);if(m)useMedia(m,false)});
+refreshLib().then(L=>{let ids=[];try{ids=JSON.parse(lsGet('sa_sel')||'[]')}catch(e){}if(!ids.length){const last=lsGet('sa_media');if(last)ids=[last]}S.sel=ids.map(f=>L.find(x=>x.file===f)).filter(Boolean);if(S.sel.length)applySel(false)});
 </script></body></html>
 '''
 open('index.html', 'w', encoding='utf-8').write(HTML)
@@ -584,21 +599,38 @@ export const FONT = `${fam}, "Noto Sans Arabic", "Noto Naskh Arabic", "Noto Colo
 
 export type Word = { text: string; start: number; end: number };
 export type Seg = { text: string; start: number; end: number; words: Word[] };
-export type MediaProps = { mediaSrc?: string | null; mediaType?: string | null; mediaDuration?: number; segments?: Seg[]; words?: Word[]; duration?: number };
+export type ClipInfo = { src: string; file?: string; type?: string; duration?: number; width?: number; height?: number; original?: string; hasAudio?: boolean };
+export type MediaProps = { mediaSrc?: string | null; mediaType?: string | null; mediaDuration?: number; segments?: Seg[]; words?: Word[]; duration?: number;
+  videoSrc?: string | null; audioSrc?: string | null; clips?: ClipInfo[]; videos?: ClipInfo[]; audios?: ClipInfo[]; files?: ClipInfo[] };
 
 // يجمع الوسائط من خصائص المكوّن أو مباشرة من inputProps — يعمل حتى لو لم يمرّرها كود التصميم
+const kindOf = (src?: string | null, t?: string | null): string | null =>
+  t === "video" || t === "audio" ? t : (src ? (/\.(m4a|mp3|wav|aac|ogg|flac|opus)(\?|$)/i.test(src) ? "audio" : "video") : null);
+
+// يجمع الوسائط من خصائص المكوّن أو مباشرة من inputProps — فيديو + ملف صوتي + عدة مقاطع، ويعمل حتى لو لم يمرّرها كود التصميم
 export const useSAMedia = (p?: MediaProps): MediaProps => {
   let inp: any = {};
   try { inp = getInputProps() || {}; } catch (e) {}
   const q: any = p || {};
-  const src = q.mediaSrc || q.videoSrc || q.audioSrc || q.src || inp.mediaSrc || null;
+  const g = (k: string): any => (q[k] !== undefined && q[k] !== null && q[k] !== "" ? q[k] : (inp[k] !== undefined && inp[k] !== null && inp[k] !== "" ? inp[k] : null));
+  const clips: ClipInfo[] = ((g("clips") || g("videos") || []) as ClipInfo[]).filter((c) => c && c.src);
+  const audios: ClipInfo[] = ((g("audios") || []) as ClipInfo[]).filter((c) => c && c.src);
+  const rawSrc: string | null = g("mediaSrc") || g("mediaUrl") || g("src") || null;
+  const vSrc: string | null = g("videoSrc") || (clips[0] && clips[0].src) || (rawSrc && kindOf(rawSrc, g("mediaType")) === "video" ? rawSrc : null);
+  const aAny: string | null = g("audioSrc") || (audios[0] && audios[0].src) || (rawSrc && kindOf(rawSrc, g("mediaType")) === "audio" ? rawSrc : null);
+  const src = vSrc || rawSrc || aAny;
+  const type = vSrc ? "video" : kindOf(src, g("mediaType"));
   return {
     mediaSrc: src,
-    mediaType: q.mediaType || inp.mediaType || null,
-    mediaDuration: q.mediaDuration || inp.mediaDuration || 0,
+    mediaType: type,
+    mediaDuration: g("mediaDuration") || 0,
     segments: (q.segments && q.segments.length ? q.segments : inp.segments) || [],
     words: (q.words && q.words.length ? q.words : inp.words) || [],
-    duration: q.duration || inp.duration,
+    duration: g("duration") || undefined,
+    videoSrc: vSrc,
+    audioSrc: aAny && aAny !== vSrc ? aAny : null,
+    clips: clips.length ? clips : (vSrc ? [{ src: vSrc, type: "video", duration: g("mediaDuration") || 0 }] : []),
+    audios,
   };
 };
 
@@ -660,19 +692,38 @@ export const MediaVideo: React.FC<{ src: string; mediaDuration?: number; style?:
   const mf = Math.max(1, Math.floor((mediaDuration || durationInFrames / fps) * fps));
   return (
     <Loop durationInFrames={mf}>
-      <OffthreadVideo src={staticFile(src)} muted style={{ width: "100%", height: "100%", objectFit: "cover", ...style }} />
+      <OffthreadVideo src={/^https?:\/\//.test(src) ? src : staticFile(src)} muted style={{ width: "100%", height: "100%", objectFit: "cover", ...style }} />
     </Loop>
   );
 };
 
+// عدة مقاطع فيديو تُشغَّل بالتتابع (وتُعاد حلقةً إن كانت أقصر من الفيديو). تُستخدم تلقائياً داخل Stage/VideoBg عند وجود أكثر من مقطع.
+export const VideoClips: React.FC<{ clips?: ClipInfo[]; style?: React.CSSProperties }> = ({ clips, style }) => {
+  const { fps, durationInFrames } = useVideoConfig();
+  const mm = useSAMedia();
+  const list = ((clips && clips.length ? clips : mm.clips) || []).filter((c) => c && c.src);
+  if (!list.length) return null;
+  const fr = list.map((c) => Math.max(1, Math.round((c.duration || 3) * fps)));
+  const total = fr.reduce((a, b) => a + b, 0);
+  const seq = list.map((c, i) => (
+    <Sequence key={i} from={fr.slice(0, i).reduce((a, b) => a + b, 0)} durationInFrames={fr[i]}>
+      <OffthreadVideo src={/^https?:\/\//.test(c.src) ? c.src : staticFile(c.src)} muted style={{ width: "100%", height: "100%", objectFit: "cover", ...style }} />
+    </Sequence>
+  ));
+  return <AbsoluteFill>{total >= durationInFrames ? seq : <Loop durationInFrames={total}>{seq}</Loop>}</AbsoluteFill>;
+};
+
+export const useSAClips = (): ClipInfo[] => useSAMedia().clips || [];
+
 export const VideoBg: React.FC<{ src?: string | null; type?: string | null; mediaDuration?: number; dim?: number; zoom?: boolean; colors?: string[] }> = ({ src, type, mediaDuration = 0, dim = 0.45, zoom = true, colors }) => {
   const f = useCurrentFrame(); const { durationInFrames } = useVideoConfig();
+  const multi = useSAMedia().clips || [];
   if (!src || type !== "video") return <Aurora colors={colors} />;
   const z = zoom ? interpolate(f, [0, durationInFrames], [1.05, 1.17]) : 1.05;
   return (
     <AbsoluteFill style={{ background: "#000" }}>
       <AbsoluteFill style={{ transform: `scale(${z}) translate(${Math.sin(f / 90) * 8}px, ${Math.cos(f / 110) * 6}px)` }}>
-        <MediaVideo src={src} mediaDuration={mediaDuration} style={{ filter: "contrast(1.1) saturate(1.2) brightness(.92)" }} />
+        {multi.length > 1 ? <VideoClips clips={multi} style={{ filter: "contrast(1.1) saturate(1.2) brightness(.92)" }} /> : <MediaVideo src={src} mediaDuration={mediaDuration} style={{ filter: "contrast(1.1) saturate(1.2) brightness(.92)" }} />}
       </AbsoluteFill>
       <AbsoluteFill style={{ background: `linear-gradient(180deg, rgba(0,0,0,${dim * 0.7}), rgba(0,0,0,${dim * 0.3}) 45%, rgba(0,0,0,${Math.min(0.92, dim + 0.3)}))` }} />
     </AbsoluteFill>
@@ -1797,7 +1848,7 @@ def kill_proc(p):
         try: p.kill()
         except Exception: pass
 
-def prepare_public(jid, mfile=None, mtype=None):
+def prepare_public(jid, mfile=None, mtype=None, files=None):
     pub = f"{W}/out/{jid}_pub"
     def link(src, dst):
         try: os.link(src, dst)
@@ -1808,9 +1859,21 @@ def prepare_public(jid, mfile=None, mtype=None):
         for alias in ([f"current_media{ext}"] + (["current_video.mp4"] if mtype == "video" else [])):
             try: link(f"{pub}/{mfile}", f"{pub}/{alias}")
             except Exception: pass
+    nv = na = 0
+    for f in (files or []):
+        fn = f.get("file")
+        if not fn or not os.path.exists(f"{pub}/{fn}"): continue
+        ext = os.path.splitext(fn)[1]
+        if f.get("type") == "video":
+            nv += 1; al = "current_video.mp4" if nv == 1 else f"current_video_{nv}.mp4"
+        else:
+            na += 1; al = f"current_audio{ext}" if na == 1 else f"current_audio_{na}{ext}"
+        if not os.path.exists(f"{pub}/{al}"):
+            try: link(f"{pub}/{fn}", f"{pub}/{al}")
+            except Exception: pass
     return pub
 
-MEDIA_USE = re.compile(r"mediaSrc|videoSrc|audioSrc|mediaUrl|mediaFile|useSAMedia|MediaVideo|VideoBg|<Stage\b|getInputProps|current_media|current_video|\bm_[a-z0-9]+\.(?:mp4|m4a)")
+MEDIA_USE = re.compile(r"mediaSrc|videoSrc|audioSrc|mediaUrl|mediaFile|useSAMedia|useSAClips|VideoClips|props\.clips|props\.videos|props\.audios|MediaVideo|VideoBg|<Stage\b|getInputProps|current_media|current_video|\bm_[a-z0-9]+\.(?:mp4|m4a)")
 
 def code_has_audio(code):
     """هل كود التصميم نفسه يشغّل صوتاً (Audio أو فيديو غير مكتوم)؟ لتفادي تكرار الصوت عند الدمج."""
@@ -1902,21 +1965,46 @@ def render_task(jid, d):
     out = f"{W}/out/{jid}.jpg" if mode == "still" else f"{W}/out/{jid}_raw.mp4"
     try:
         media = d.get("media") or {}
-        mfile = os.path.basename(media.get("file", "") or "")
-        if mfile and not PLATFORM.ensure_local(mfile):
-            raise RuntimeError("MEDIA_MISSING: تعذّرت استعادة الملف من التخزين الآمن. ارفعه مرة أخرى.")
+        # كل الملفات المختارة (فيديو + صوت، أو أكثر من مقطع) — لا يُستبدل أحدها بالآخر
+        _raw = d.get("medias") if isinstance(d.get("medias"), list) and d.get("medias") else ([media] if media.get("file") else [])
+        _seen, files = set(), []
+        for _m in _raw[:6]:
+            fn = os.path.basename((_m or {}).get("file", "") or "")
+            if not fn or fn in _seen: continue
+            _seen.add(fn)
+            if not PLATFORM.ensure_local(fn):
+                raise RuntimeError("MEDIA_MISSING: تعذّرت استعادة الملف من التخزين الآمن. ارفعه مرة أخرى.")
+            _r = MEDIA.get(fn) or {}
+            if _r: _r["used"] = time.time()
+            files.append({"file": fn, "type": _r.get("type") or (_m or {}).get("type") or ("audio" if fn.endswith((".m4a", ".mp3", ".wav")) else "video"),
+                          "duration": float(_r.get("duration") or (_m or {}).get("duration") or 0),
+                          "has_audio": bool(_r.get("has_audio", (_m or {}).get("has_audio", True))),
+                          "width": _r.get("width") or (_m or {}).get("width"), "height": _r.get("height") or (_m or {}).get("height"),
+                          "original": _r.get("original") or (_m or {}).get("original") or fn})
+        vids = [f for f in files if f["type"] == "video"]; auds = [f for f in files if f["type"] == "audio"]
+        prim = vids[0] if vids else (auds[0] if auds else None)      # الصورة: أول فيديو، وإلا الصوت
+        speech = auds[0] if auds else (vids[0] if vids else None)    # الكلام: ملف الصوت المرفوع أولاً، وإلا صوت الفيديو
+        mfile = prim["file"] if prim else ""
         rec = MEDIA.get(mfile) or {}
-        if mfile and rec: rec["used"] = time.time()
-        mdur = float(rec.get("duration") or media.get("duration") or 0) if mfile else 0
-        mtype = (rec.get("type") or media.get("type")) if mfile else None
+        srec = MEDIA.get(speech["file"]) if speech else {}
+        srec = srec or {}
+        mdur = prim["duration"] if prim else 0
+        mtype = prim["type"] if prim else None
         J["media"] = mfile
-        props = {"words": d.get("words") or rec.get("words") or [], "segments": d.get("segments") or rec.get("segments") or [], "scenes": rec.get("scenes") or [], "mediaSrc": mfile or None,
-                 "mediaType": mtype, "mediaDuration": mdur, "duration": duration, "hasMedia": bool(mfile)}
-        if mfile:
-            props.update(videoSrc=mfile if mtype == "video" else None, audioSrc=mfile, src=mfile, mediaUrl=mfile, mediaFile=mfile,
-                         media={"src": mfile, "type": mtype, "duration": mdur})
+        _pf = lambda f: {"src": f["file"], "file": f["file"], "type": f["type"], "duration": f["duration"], "hasAudio": f["has_audio"], "width": f["width"], "height": f["height"], "original": f["original"]}
+        props = {"words": d.get("words") or srec.get("words") or [], "segments": d.get("segments") or srec.get("segments") or [], "scenes": srec.get("scenes") or rec.get("scenes") or [], "mediaSrc": mfile or None,
+                 "mediaType": mtype, "mediaDuration": mdur, "duration": duration, "hasMedia": bool(files)}
+        if files:
+            props.update(videoSrc=vids[0]["file"] if vids else None, audioSrc=auds[0]["file"] if auds else mfile, src=mfile, mediaUrl=mfile, mediaFile=mfile,
+                         media={"src": mfile, "type": mtype, "duration": mdur},
+                         files=[_pf(f) for f in files], videos=[_pf(f) for f in vids], clips=[_pf(f) for f in vids], audios=[_pf(f) for f in auds],
+                         videoDuration=vids[0]["duration"] if vids else 0, audioDuration=auds[0]["duration"] if auds else 0)
         carries = code_has_audio(d.get("code", ""))
         warns = media_warnings(d.get("code", ""), mfile, mtype, carries, bool(d.get("voice", True)))
+        if vids and auds:
+            warns.append(f"دُمج الفيديو ({vids[0]['original']}) مع الصوت ({auds[0]['original']}): الصورة من الفيديو والصوت من الملف الصوتي" + (" (صوت الفيديو الأصلي مكتوم)." if vids[0]["has_audio"] else "."))
+        elif len(vids) > 1:
+            warns.append(f"{len(vids)} مقاطع مرفقة: يمرَّر الجميع للكود (props.clips) ويُشغَّل صوت الأول فقط ما لم يكتب التصميم غير ذلك.")
         use_cloud = (mode == "video") and d.get("cloud", True) is not False and cloud_enabled()
         narr = None
         _nr = sa_tts.parse_narration(d.get("code", "")) if mode == "video" else None
@@ -1951,7 +2039,7 @@ def render_task(jid, d):
             missing = ensure_packages(d.get("code", ""), J)
             J.update(stage="تجهيز الملفات", progress=1)
             if J.get("cancelled"): raise RuntimeError("تم الإلغاء")
-            pub = prepare_public(jid, mfile, mtype)
+            pub = prepare_public(jid, mfile, mtype, files)
             if J.get("cancelled"): raise RuntimeError("تم الإلغاء")
             t = num(d.get("time"), 0.0)
             spec = {"root": W, "publicDir": pub, "props": props, "mode": mode, "output": out, "crf": cfg["crf"], "preset": cfg["preset"],
@@ -1968,17 +2056,17 @@ def render_task(jid, d):
         if mode == "still":
             J.update(status="done", progress=100, result={"url": f"/api/still/{jid}", "frame": spec["frame"], "notes": d.get("notes", []), "fixed_code": d.get("fixed_code"), "warnings": warns}); return
         J.update(stage="مزج الصوت والمؤثرات", progress=92, details="")
-        voice = f"{W}/public/{mfile}" if (mfile and d.get("voice", True) and rec.get("has_audio", media.get("has_audio", True)) and not carries) else None
+        voice = f"{W}/public/{speech['file']}" if (speech and d.get("voice", True) and speech["has_audio"] and not carries) else None
         if narr: voice = narr["path"]
         final = f"{W}/out/{jid}.mp4"
         used, _aw, arep = sa_audio.finish(sys.modules[__name__], jid, d, J, out, final, duration, voice, props["segments"])
         warns += _aw
         _bw = black_warning(final, duration, mfile, mtype, d.get('code', ''), props['segments'], rec)
         if _bw: warns.insert(0, _bw)
-        if mfile:
+        if files:
             _why = None
             if not voice:
-                _why = ("«دمج صوت الملف» مُعطّل" if not d.get("voice", True) else ("الملف لا يحتوي مسار صوت" if not rec.get("has_audio", media.get("has_audio", True)) else ("الكود نفسه يشغّل الصوت" if carries else "لم يُدمج")))
+                _why = ("«دمج صوت الملف» مُعطّل" if not d.get("voice", True) else ("الملف لا يحتوي مسار صوت" if not (speech and speech["has_audio"]) else ("الكود نفسه يشغّل الصوت" if carries else "لم يُدمج")))
             arep["voice"] = {"mixed": bool(voice), "why": _why}
         if narr: arep["voice"] = {"mixed": True, "why": None, "narration": {"provider": narr["provider"], "voice": narr["voice"], "seconds": narr["end"], "words": len(narr["words"])}}
         J.update(status="done", progress=100, result={"url": f"/api/video/{jid}", "sfx_used": used, "audio": arep, "size_mb": round(os.path.getsize(final) / 1e6, 1),
@@ -2041,9 +2129,9 @@ def render():
     if err: return format_err(err, fixed) + "\n\nجرّب زر «فحص وإصلاح» أو أعد تحميل قالب جاهز.", 400
     name, is_def, fixed = pick_component(fixed)
     if not name: return "لم أجد مكوناً مُصدَّراً. اكتب: export const Motion = () => ...", 400
-    mname = os.path.basename((d.get("media") or {}).get("file", "") or "")
-    if mname:
-        _e = PLATFORM.media_access(mname)
+    _sel = [m for m in (d.get("medias") or ([d.get("media")] if d.get("media") else [])) if isinstance(m, dict) and m.get("file")][:6]
+    for _m in _sel:
+        _e = PLATFORM.media_access(os.path.basename(_m.get("file", "")))
         if _e: return _e, 400
     cleanup()
     with LOCK:

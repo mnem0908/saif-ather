@@ -16,19 +16,30 @@ const SAFE_FILE = /^[A-Za-z0-9_.-]{1,120}$/;
     cp.execSync(`npm install --no-save --no-audit --no-fund --loglevel=error --legacy-peer-deps ${specs.join(" ")}`, { stdio: "inherit" });
   }
 
-  // 2) media -> public/<file> (+ the aliases the studio code may use)
+  // 2) media -> public/<file> (+ the aliases the studio code may use). Several files: video + audio, or more clips.
   fs.mkdirSync("public", { recursive: true });
-  const m = job.media;
-  if (m && m.file) {
+  const list = (job.medias && job.medias.length ? job.medias : (job.media ? [job.media] : [])).filter((x) => x && x.file);
+  let nv = 0, na = 0;
+  for (const m of list) {
     if (!SAFE_FILE.test(m.file)) throw new Error("bad media file name");
     console.log("download media", m.file);
-    const r = await fetch(m.url, { redirect: "follow" });
-    if (!r.ok) throw new Error("media download failed: " + r.status);
-    const buf = Buffer.from(await r.arrayBuffer());
+    let buf = null, last = "";
+    for (let i = 0; i < 4 && !buf; i++) {
+      try {
+        const r = await fetch(m.url, { redirect: "follow" });
+        if (!r.ok) { last = "HTTP " + r.status; await new Promise((z) => setTimeout(z, 1500 * (i + 1))); continue; }
+        const b = Buffer.from(await r.arrayBuffer());
+        if (b.length < 100) { last = "empty file"; continue; }
+        buf = b;
+      } catch (e) { last = String(e); await new Promise((z) => setTimeout(z, 1500 * (i + 1))); }
+    }
+    if (!buf) throw new Error("media download failed: " + m.file + " " + last);
     fs.writeFileSync(path.join("public", m.file), buf);
     const ext = path.extname(m.file);
-    fs.writeFileSync(path.join("public", "current_media" + ext), buf);
-    if (m.type === "video") fs.writeFileSync(path.join("public", "current_video.mp4"), buf);
+    const primary = job.media && job.media.file === m.file;
+    if (primary) fs.writeFileSync(path.join("public", "current_media" + ext), buf);
+    if (m.type === "video") { nv++; fs.writeFileSync(path.join("public", nv === 1 ? "current_video.mp4" : `current_video_${nv}.mp4`), buf); }
+    else { na++; fs.writeFileSync(path.join("public", na === 1 ? "current_audio" + ext : `current_audio_${na}${ext}`), buf); }
   }
 
   // 3) composition + root

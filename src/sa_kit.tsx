@@ -8,21 +8,38 @@ export const FONT = `${fam}, "Noto Sans Arabic", "Noto Naskh Arabic", "Noto Colo
 
 export type Word = { text: string; start: number; end: number };
 export type Seg = { text: string; start: number; end: number; words: Word[] };
-export type MediaProps = { mediaSrc?: string | null; mediaType?: string | null; mediaDuration?: number; segments?: Seg[]; words?: Word[]; duration?: number };
+export type ClipInfo = { src: string; file?: string; type?: string; duration?: number; width?: number; height?: number; original?: string; hasAudio?: boolean };
+export type MediaProps = { mediaSrc?: string | null; mediaType?: string | null; mediaDuration?: number; segments?: Seg[]; words?: Word[]; duration?: number;
+  videoSrc?: string | null; audioSrc?: string | null; clips?: ClipInfo[]; videos?: ClipInfo[]; audios?: ClipInfo[]; files?: ClipInfo[] };
 
 // يجمع الوسائط من خصائص المكوّن أو مباشرة من inputProps — يعمل حتى لو لم يمرّرها كود التصميم
+const kindOf = (src?: string | null, t?: string | null): string | null =>
+  t === "video" || t === "audio" ? t : (src ? (/\.(m4a|mp3|wav|aac|ogg|flac|opus)(\?|$)/i.test(src) ? "audio" : "video") : null);
+
+// يجمع الوسائط من خصائص المكوّن أو مباشرة من inputProps — فيديو + ملف صوتي + عدة مقاطع، ويعمل حتى لو لم يمرّرها كود التصميم
 export const useSAMedia = (p?: MediaProps): MediaProps => {
   let inp: any = {};
   try { inp = getInputProps() || {}; } catch (e) {}
   const q: any = p || {};
-  const src = q.mediaSrc || q.videoSrc || q.audioSrc || q.mediaUrl || q.src || inp.mediaSrc || inp.mediaUrl || null;
+  const g = (k: string): any => (q[k] !== undefined && q[k] !== null && q[k] !== "" ? q[k] : (inp[k] !== undefined && inp[k] !== null && inp[k] !== "" ? inp[k] : null));
+  const clips: ClipInfo[] = ((g("clips") || g("videos") || []) as ClipInfo[]).filter((c) => c && c.src);
+  const audios: ClipInfo[] = ((g("audios") || []) as ClipInfo[]).filter((c) => c && c.src);
+  const rawSrc: string | null = g("mediaSrc") || g("mediaUrl") || g("src") || null;
+  const vSrc: string | null = g("videoSrc") || (clips[0] && clips[0].src) || (rawSrc && kindOf(rawSrc, g("mediaType")) === "video" ? rawSrc : null);
+  const aAny: string | null = g("audioSrc") || (audios[0] && audios[0].src) || (rawSrc && kindOf(rawSrc, g("mediaType")) === "audio" ? rawSrc : null);
+  const src = vSrc || rawSrc || aAny;
+  const type = vSrc ? "video" : kindOf(src, g("mediaType"));
   return {
     mediaSrc: src,
-    mediaType: q.mediaType || inp.mediaType || null,
-    mediaDuration: q.mediaDuration || inp.mediaDuration || 0,
+    mediaType: type,
+    mediaDuration: g("mediaDuration") || 0,
     segments: (q.segments && q.segments.length ? q.segments : inp.segments) || [],
     words: (q.words && q.words.length ? q.words : inp.words) || [],
-    duration: q.duration || inp.duration,
+    duration: g("duration") || undefined,
+    videoSrc: vSrc,
+    audioSrc: aAny && aAny !== vSrc ? aAny : null,
+    clips: clips.length ? clips : (vSrc ? [{ src: vSrc, type: "video", duration: g("mediaDuration") || 0 }] : []),
+    audios,
   };
 };
 
@@ -89,14 +106,33 @@ export const MediaVideo: React.FC<{ src: string; mediaDuration?: number; style?:
   );
 };
 
+// عدة مقاطع فيديو تُشغَّل بالتتابع (وتُعاد حلقةً إن كانت أقصر من الفيديو). تُستخدم تلقائياً داخل Stage/VideoBg عند وجود أكثر من مقطع.
+export const VideoClips: React.FC<{ clips?: ClipInfo[]; style?: React.CSSProperties }> = ({ clips, style }) => {
+  const { fps, durationInFrames } = useVideoConfig();
+  const mm = useSAMedia();
+  const list = ((clips && clips.length ? clips : mm.clips) || []).filter((c) => c && c.src);
+  if (!list.length) return null;
+  const fr = list.map((c) => Math.max(1, Math.round((c.duration || 3) * fps)));
+  const total = fr.reduce((a, b) => a + b, 0);
+  const seq = list.map((c, i) => (
+    <Sequence key={i} from={fr.slice(0, i).reduce((a, b) => a + b, 0)} durationInFrames={fr[i]}>
+      <OffthreadVideo src={/^https?:\/\//.test(c.src) ? c.src : staticFile(c.src)} muted style={{ width: "100%", height: "100%", objectFit: "cover", ...style }} />
+    </Sequence>
+  ));
+  return <AbsoluteFill>{total >= durationInFrames ? seq : <Loop durationInFrames={total}>{seq}</Loop>}</AbsoluteFill>;
+};
+
+export const useSAClips = (): ClipInfo[] => useSAMedia().clips || [];
+
 export const VideoBg: React.FC<{ src?: string | null; type?: string | null; mediaDuration?: number; dim?: number; zoom?: boolean; colors?: string[] }> = ({ src, type, mediaDuration = 0, dim = 0.45, zoom = true, colors }) => {
   const f = useCurrentFrame(); const { durationInFrames } = useVideoConfig();
+  const multi = useSAMedia().clips || [];
   if (!src || type !== "video") return <Aurora colors={colors} />;
   const z = zoom ? interpolate(f, [0, durationInFrames], [1.05, 1.17]) : 1.05;
   return (
     <AbsoluteFill style={{ background: "#000" }}>
       <AbsoluteFill style={{ transform: `scale(${z}) translate(${Math.sin(f / 90) * 8}px, ${Math.cos(f / 110) * 6}px)` }}>
-        <MediaVideo src={src} mediaDuration={mediaDuration} style={{ filter: "contrast(1.1) saturate(1.2) brightness(.92)" }} />
+        {multi.length > 1 ? <VideoClips clips={multi} style={{ filter: "contrast(1.1) saturate(1.2) brightness(.92)" }} /> : <MediaVideo src={src} mediaDuration={mediaDuration} style={{ filter: "contrast(1.1) saturate(1.2) brightness(.92)" }} />}
       </AbsoluteFill>
       <AbsoluteFill style={{ background: `linear-gradient(180deg, rgba(0,0,0,${dim * 0.7}), rgba(0,0,0,${dim * 0.3}) 45%, rgba(0,0,0,${Math.min(0.92, dim + 0.3)}))` }} />
     </AbsoluteFill>
@@ -326,5 +362,5 @@ export const Captions: React.FC<{ segments?: Seg[]; variant?: "pill" | "outline"
 
 export const Hint: React.FC<{ text: string }> = ({ text }) => {
   const { width, height } = useVideoConfig(); const m = Math.min(width, height);
-  return <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", color: SA.mute, fontSize: m * 0.05, fontWeight: 700, textAlign: "center", padding: m * 0.1, fontFamily: FONT }}>{text}</AbsoluteFill>;
+  void m; void width; void height; void text; return null;
 };
