@@ -33,9 +33,9 @@ DEFAULT_SETTINGS = {"site_name": "SA Motion Studio", "public_url": "", "maintena
                     "max_cloud": 12, "cloud_slots": 15, "sec_per_machine": 10, "default_plan": "pro", "welcome": "", "share_kicks": 6}
 USER_PLAIN = {"gemini_model": r"[A-Za-z0-9_\.\-:/]{1,60}",
               "openai_base": r"https://[A-Za-z0-9\.\-]{3,80}(:\d{2,5})?(/[A-Za-z0-9_\.\-/]{0,60})?", "openai_model": r"[A-Za-z0-9_\.\-:/]{1,60}"}
-USER_KEYS = ("freesound_key", "groq_key", "gemini_key", "grok_key", "openai_key") + tuple(USER_PLAIN)
-USER_KEY_UI = ("gemini_key", "grok_key", "freesound_key", "groq_key", "openai_key")
-SECRET_KEYS = ["freesound_key", "gemini_key", "grok_key", "openai_key", "groq_key"]
+USER_KEYS = ("freesound_key", "groq_key", "gemini_key", "openai_key") + tuple(USER_PLAIN)
+USER_KEY_UI = ("gemini_key", "freesound_key", "groq_key", "openai_key")
+SECRET_KEYS = ["freesound_key", "gemini_key", "openai_key", "groq_key"]
 PLAIN_KEYS = ["gemini_model", "openai_base", "openai_model", "tts_default"]
 
 P = None  # singleton
@@ -861,7 +861,7 @@ def register(app):
 
     @app.route("/api/mykeys/test/<prov>", methods=["POST"])
     def api_mykeys_test(prov):
-        if prov not in ("gemini", "grok", "freesound", "groq", "openai"):
+        if prov not in ("gemini", "freesound", "groq", "openai"):
             return jerr("bad", 400)
         if P.rate(f"keytest:{P.uid()}", 12, 60):
             return jerr("تمهّل قليلاً", 429)

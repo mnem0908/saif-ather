@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Text-to-speech with precise sync: Gemini / Grok (xAI) / OpenAI-compatible, sentence-level synthesis, word timings (native -> ASR -> proportional)."""
+"""Text-to-speech with precise sync: Gemini / Groq (Orpheus) / OpenAI-compatible, sentence-level synthesis, word timings (native -> ASR -> proportional)."""
 import os, re, io, json, time, base64, subprocess, threading, difflib, unicodedata, uuid, traceback, shutil, tempfile
 import requests
 from flask import request, jsonify
@@ -18,11 +18,14 @@ GEMINI_VOICES = [
 ]
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_MODELS = ("gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts")  # tried in order after the model set in the admin panel
-XAI_BASE = "https://api.x.ai/v1"
-GROK_FALLBACK = [("eve", "Eve — حيوية"), ("ara", "Ara — ودودة"), ("rex", "Rex — واثق"), ("sal", "Sal — متوازن"), ("leo", "Leo — رسمي")]
+GROQ_BASE = "https://api.groq.com/openai/v1"
+GROQ_MODEL_AR, GROQ_MODEL_EN = "canopylabs/orpheus-arabic-saudi", "canopylabs/orpheus-v1-english"
+GROQ_AR_VOICES = ("abdullah", "fahad")
+GROQ_VOICES = [("abdullah", "Abdullah — سعودي (ذكر)"), ("fahad", "Fahad — سعودي (ذكر)"), ("hannah", "Hannah — English (F)"), ("autumn", "Autumn — English (F)"),
+               ("diana", "Diana — English (F)"), ("austin", "Austin — English (M)"), ("daniel", "Daniel — English (M)"), ("troy", "Troy — English (M)")]
 OPENAI_VOICES = [(v, v) for v in ("alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse")]
-DEFAULT_VOICE = {"gemini": {"female": "Kore", "male": "Charon"}, "grok": {"female": "ara", "male": "leo"}, "openai": {"female": "nova", "male": "onyx"}}
-PROVIDER_ORDER = ("gemini", "grok", "openai")
+DEFAULT_VOICE = {"gemini": {"female": "Kore", "male": "Charon"}, "groq": {"female": "hannah", "male": "austin"}, "openai": {"female": "nova", "male": "onyx"}}
+PROVIDER_ORDER = ("gemini", "groq", "openai")
 _voice_cache = {}
 
 
@@ -30,8 +33,8 @@ def available(P):
     out = []
     if P.setting("gemini_key"):
         out.append({"id": "gemini", "label": "Gemini TTS", "native": False})
-    if P.setting("grok_key"):
-        out.append({"id": "grok", "label": "Grok (xAI)", "native": False})
+    if P.setting("groq_key"):
+        out.append({"id": "groq", "label": "Groq (Orpheus)", "native": False})
     if P.setting("openai_key"):
         out.append({"id": "openai", "label": "OpenAI / متوافق", "native": False})
     return out
@@ -145,6 +148,10 @@ def speech_window(path, total):
 # ------------------------------------------------------------------ providers: return (audio_bytes, timed|None)
 # None for `timed` is normal: none of the three returns word timings, so the pipeline aligns words with ASR (Groq / local Whisper).
 def _api_msg(r):
+    return re.sub(r"(api_key|key)[:=]\s*\S+", r"\1:***", _api_msg_raw(r))
+
+
+def _api_msg_raw(r):
     try:
         j = r.json()
         e = j.get("error") if isinstance(j, dict) else None
@@ -164,7 +171,7 @@ def _wav_from_pcm(pcm, rate=24000):
 
 
 def _tempo(data, speed, ext):
-    """Gemini and Grok have no speed control: change the pace with ffmpeg atempo (pitch is preserved)."""
+    """Gemini and Groq have no speed control: change the pace with ffmpeg atempo (pitch is preserved)."""
     if abs(speed - 1.0) < 0.03:
         return data
     d = tempfile.mkdtemp()
@@ -210,6 +217,10 @@ def synth_gemini(text, voice, speed, P, lang=None, style=None):
                 last = f"Gemini ({model}): لم يرجع صوتاً"; time.sleep(1.0 + attempt); continue  # the model sometimes answers with text only -> retry
             msg = _api_msg(r)
             last = f"Gemini HTTP {r.status_code} ({model}): {msg}"
+            if r.status_code in (400, 401, 403) and re.search(r"suspend|api key|permission|denied|invalid", msg, re.I):
+                if re.search(r"suspend", msg, re.I):
+                    raise RuntimeError("Gemini: Google أوقفت هذا المشروع/الحساب (CONSUMER_SUSPENDED) — مفتاح جديد من نفس المشروع سيفشل أيضاً. أنشئ المفتاح داخل مشروع جديد أو بحساب Google آخر من aistudio.google.com، أو اختر Groq")
+                raise RuntimeError("Gemini: المفتاح مرفوض من Google — تأكد أنه منسوخ كاملاً وأن Generative Language API مفعّل (" + msg[:90] + ")")
             if r.status_code in (429, 500, 502, 503, 504):
                 time.sleep(2.5 * (attempt + 1)); continue
             if r.status_code in (400, 404) and re.search(r"model|not found|not supported|unsupported", msg, re.I) and not re.search(r"api key", msg, re.I):
@@ -218,50 +229,46 @@ def synth_gemini(text, voice, speed, P, lang=None, style=None):
     raise RuntimeError(last or "Gemini: فشل التوليد")
 
 
-def synth_grok(text, voice, speed, P, lang=None, style=None):
-    """Grok (xAI) TTS: POST /v1/tts -> mp3."""
-    key = P.setting("grok_key")
+def _wav_concat(parts):
+    import wave
+    out = io.BytesIO(); w = None
+    for p in parts:
+        r = wave.open(io.BytesIO(p), "rb")
+        if w is None:
+            w = wave.open(out, "wb"); w.setparams(r.getparams())
+        w.writeframes(r.readframes(r.getnframes())); r.close()
+    w.close()
+    return out.getvalue()
+
+
+def synth_groq(text, voice, speed, P, lang=None, style=None):
+    """Groq TTS (Canopy Labs Orpheus): Arabic-Saudi voices use the Saudi model, English voices the English model. Input is limited to ~200 chars per request, so the line is split and the wavs are joined."""
+    key = P.setting("groq_key")
     if not key:
-        raise RuntimeError("Grok: المفتاح غير مضبوط")
-    heads = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
-    last = None
-    for lg in dict.fromkeys([x for x in (lang, "auto") if x] + [None]):  # the language hint is optional; try without it if it is rejected
-        body = {"text": text, "voice_id": voice}
-        if lg: body["language"] = lg
+        raise RuntimeError("Groq: المفتاح غير مضبوط")
+    model = GROQ_MODEL_AR if voice in GROQ_AR_VOICES else GROQ_MODEL_EN
+    chunks = [c["text"] for c in sentences(text, 170)] or [text]
+    wavs = []
+    for ch in chunks:
+        last = None
         for attempt in range(3):
             try:
-                r = requests.post(f"{XAI_BASE}/tts", headers=heads, json=body, timeout=150)
+                r = requests.post(f"{GROQ_BASE}/audio/speech", headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+                                  json={"model": model, "input": ch, "voice": voice, "response_format": "wav"}, timeout=120)
             except requests.RequestException as e:
-                last = f"Grok: تعذّر الاتصال ({str(e)[:80]})"; time.sleep(1.5 * (attempt + 1)); continue
-            if r.status_code == 200 and len(r.content) > 500 and "json" not in (r.headers.get("content-type") or "").lower():
-                return _tempo(r.content, speed, "mp3"), None
-            last = f"Grok HTTP {r.status_code}: {_api_msg(r)}"
+                last = f"Groq: تعذّر الاتصال ({str(e)[:80]})"; time.sleep(1.5 * (attempt + 1)); continue
+            if r.status_code == 200 and r.content[:4] == b"RIFF":
+                wavs.append(r.content); last = None; break
+            msg = _api_msg(r)
+            last = f"Groq HTTP {r.status_code} ({model}): {msg}"
             if r.status_code in (429, 500, 502, 503, 504):
                 time.sleep(2.5 * (attempt + 1)); continue
-            break
-        if re.search(r"HTTP (401|403|402)", last or ""):
-            break
-    raise RuntimeError(last or "Grok: فشل التوليد")
-
-
-def grok_voices(P):
-    c = _voice_cache.get("grok")
-    if c and time.time() - c[0] < 600:
-        return c[1]
-    try:
-        r = requests.get(f"{XAI_BASE}/tts/voices", headers={"Authorization": "Bearer " + P.setting("grok_key")}, timeout=20)
-        raw = r.json().get("voices") or []
-        vs = []
-        for v in raw:
-            if isinstance(v, str): vs.append((v, v)); continue
-            vid = v.get("voice_id") or v.get("id")
-            if vid: vs.append((str(vid), str(v.get("name") or vid) + (" — " + str(v.get("description"))[:40] if v.get("description") else "")))
-        if vs:
-            _voice_cache["grok"] = (time.time(), vs)
-            return vs
-    except Exception:
-        pass
-    return GROK_FALLBACK
+            if re.search(r"terms|accept", msg, re.I):
+                last += " — فعّل شروط الموديل من console.groq.com (Playground) ثم أعد المحاولة"
+            raise RuntimeError(last)
+        if last:
+            raise RuntimeError(last)
+    return _tempo(_wav_concat(wavs), speed, "wav"), None
 
 
 def synth_openai(text, voice, speed, P, lang=None, style=None):
@@ -276,14 +283,14 @@ def synth_openai(text, voice, speed, P, lang=None, style=None):
     return r.content, None
 
 
-SYNTH = {"gemini": synth_gemini, "grok": synth_grok, "openai": synth_openai}
+SYNTH = {"gemini": synth_gemini, "groq": synth_groq, "openai": synth_openai}
 
 
 def list_voices(P, prov):
     if prov == "gemini":
         return GEMINI_VOICES
-    if prov == "grok":
-        return grok_voices(P)
+    if prov == "groq":
+        return GROQ_VOICES
     if prov == "openai":
         return OPENAI_VOICES
     return []
@@ -299,11 +306,16 @@ def test_provider(P, prov):
         k = P.setting("groq_key")
         if not k: return {"ok": False, "msg": "المفتاح غير مضبوط"}
         r = requests.get("https://api.groq.com/openai/v1/models", headers={"Authorization": "Bearer " + k}, timeout=20)
-        return {"ok": r.status_code == 200, "msg": "Groq يعمل ✓" if r.status_code == 200 else f"HTTP {r.status_code}"}
+        if r.status_code != 200: return {"ok": False, "msg": f"HTTP {r.status_code}"}
+        try:
+            a, _t = synth_groq("مرحباً بكم.", "abdullah", 1.0, P, lang="ar")
+            return {"ok": True, "msg": f"Groq يعمل ✓ (تفريغ + صوت عربي، عيّنة {len(a) // 1024}KB)"}
+        except Exception as e:
+            return {"ok": True, "msg": "Groq يعمل للتفريغ ✓ — الصوت غير متاح: " + str(e)[:170]}
     if prov in SYNTH:
         if not P.setting(prov + "_key"): return {"ok": False, "msg": "المفتاح غير مضبوط"}
         a, _t = SYNTH[prov]("Hello, this is a test.", DEFAULT_VOICE[prov]["female"], 1.0, P, lang="en")
-        label = {"gemini": "Gemini", "grok": "Grok", "openai": "OpenAI"}[prov]
+        label = {"gemini": "Gemini", "openai": "OpenAI"}[prov]
         return {"ok": True, "msg": f"{label} يعمل ✓ (عيّنة {len(a) // 1024}KB)"}
     return {"ok": False, "msg": "مزوّد غير معروف"}
 
@@ -387,9 +399,11 @@ def _pick_voice(P, prov, want, lang, gender, keep=True):
         for vid, name in vs:  # a voice NAME or part of it
             if want.lower() in name.lower():
                 return vid
-        if prov in ("grok", "openai") and re.fullmatch(r"[A-Za-z0-9_.:\-]{1,80}", want):
+        if prov == "openai" and re.fullmatch(r"[A-Za-z0-9_.:\-]{1,80}", want):
             return want  # a custom / cloned voice id of the account
     g = gender if gender in ("male", "female") else "female"
+    if prov == "groq" and (lang or "ar") == "ar":
+        return "abdullah"  # the Saudi Arabic voices are male (abdullah, fahad)
     return DEFAULT_VOICE.get(prov, {}).get(g) or (vs[0][0] if vs else "")
 
 
@@ -397,10 +411,12 @@ def narrate(host, P, J, jid, lines, opts):
     """Generate the narration; if the chosen provider fails, fall back to the next available one (with a note)."""
     avail = [p["id"] for p in available(P)]
     asked = (opts.get("provider") or "").strip().lower()
+    if asked in ("auto", "any", "default"):
+        asked = ""  # automatic: the studio picks the first provider that has a key (gemini -> groq -> openai)
     first = asked if asked in avail else None
     chain = ([first] if first else []) + [x for x in PROVIDER_ORDER if x in avail and x != first]
     if not chain:
-        raise RuntimeError("لا يوجد مزوّد صوت متاح: أضف مفتاح Gemini أو Grok (أو OpenAI) من «مفاتيحي الخاصة».")
+        raise RuntimeError("لا يوجد مزوّد صوت متاح: أضف مفتاح Gemini أو Groq (أو OpenAI) من «مفاتيحي الخاصة».")
     notes, last = [], None
     if asked and not first:
         notes.append(f"المزوّد «{asked}» غير متاح في الاستوديو — استُخدم {chain[0]}.")
