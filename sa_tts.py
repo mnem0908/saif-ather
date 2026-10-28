@@ -21,7 +21,7 @@ GEMINI_MODELS = ("gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts")
 GROQ_BASE = "https://api.groq.com/openai/v1"
 GROQ_MODEL_AR, GROQ_MODEL_EN = "canopylabs/orpheus-arabic-saudi", "canopylabs/orpheus-v1-english"
 GROQ_AR_VOICES = ("abdullah", "fahad")
-GROQ_VOICES = [("abdullah", "Abdullah — سعودي (ذكر)"), ("fahad", "Fahad — سعودي (ذكر)"), ("hannah", "Hannah — English (F)"), ("autumn", "Autumn — English (F)"),
+GROQ_VOICES = [("abdullah", "Abdullah — عربي (ذكر)"), ("fahad", "Fahad — عربي (ذكر)"), ("hannah", "Hannah — English (F)"), ("autumn", "Autumn — English (F)"),
                ("diana", "Diana — English (F)"), ("austin", "Austin — English (M)"), ("daniel", "Daniel — English (M)"), ("troy", "Troy — English (M)")]
 OPENAI_VOICES = [(v, v) for v in ("alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse")]
 DEFAULT_VOICE = {"gemini": {"female": "Kore", "male": "Charon"}, "groq": {"female": "hannah", "male": "austin"}, "openai": {"female": "nova", "male": "onyx"}}

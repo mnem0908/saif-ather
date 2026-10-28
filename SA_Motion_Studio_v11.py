@@ -322,7 +322,7 @@ textarea.code{background:#fffdfb;color:#3b2a22}.edbar{background:#fff}
 <div class="hint" style="margin:6px 0 8px;line-height:1.9">مفتاح Gemini API من Google AI Studio. يولّد التعليق الصوتي بأصوات كثيرة ويقرأ العربية بحسب سياق النص.</div>
 <div class="kr" style="margin-top:8px"><label><span>Freesound — المؤثرات والموسيقى</span><span class="st" id="kf_st"></span></label><input class="in" id="kf" dir="ltr" type="password" autocomplete="off" placeholder="الصق API Key"></div>
 <details class="kr"><summary style="cursor:pointer;color:var(--t3);font-size:12px">مفاتيح اختيارية</summary>
-<label style="margin-top:8px"><span>Groq (تفريغ + صوت عربي سعودي)</span><span class="st" id="kg_st"></span></label><input class="in" id="kg" dir="ltr" type="password" autocomplete="off" placeholder="gsk_...">
+<label style="margin-top:8px"><span>Groq (تفريغ + صوت عربي)</span><span class="st" id="kg_st"></span></label><input class="in" id="kg" dir="ltr" type="password" autocomplete="off" placeholder="gsk_...">
 <label style="margin-top:8px"><span>OpenAI أو أي خدمة متوافقة — المفتاح</span><span class="st" id="ko_st"></span></label><input class="in" id="ko" dir="ltr" type="password" autocomplete="off" placeholder="sk-...">
 <input class="in" id="kob" dir="ltr" autocomplete="off" placeholder="عنوان الخدمة (اختياري) https://api.openai.com/v1" style="margin-top:6px">
 <input class="in" id="kom" dir="ltr" autocomplete="off" placeholder="الموديل (اختياري) gpt-4o-mini-tts" style="margin-top:6px"></details>
