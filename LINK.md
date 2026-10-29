@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://over-guild-editor-admissions.trycloudflare.com
+الرابط الحالي المباشر: https://bags-choose-minute-rica.trycloudflare.com
 
-آخر تحديث: 2026-10-29 12:44 UTC — تشغيل رقم 40875518514
+آخر تحديث: 2026-10-29 18:04 UTC — تشغيل رقم 40927134913
