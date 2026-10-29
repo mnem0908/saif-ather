@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://bags-choose-minute-rica.trycloudflare.com
+الرابط الحالي المباشر: https://appearing-bodies-pulse-sent.trycloudflare.com
 
-آخر تحديث: 2026-10-29 18:04 UTC — تشغيل رقم 40927134913
+آخر تحديث: 2026-10-29 23:24 UTC — تشغيل رقم 40972840991
