@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://wool-construction-singh-messenger.trycloudflare.com
+الرابط الحالي المباشر: https://action-lcd-flexible-movement.trycloudflare.com
 
-آخر تحديث: 2026-11-01 10:10 UTC — تشغيل رقم 41296154449
+آخر تحديث: 2026-11-01 15:30 UTC — تشغيل رقم 41321444061
