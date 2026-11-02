@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://green-grip-lovely-equality.trycloudflare.com
+الرابط الحالي المباشر: https://fruit-dedicated-blind-researchers.trycloudflare.com
 
-آخر تحديث: 2026-11-02 18:25 UTC — تشغيل رقم 41500256421
+آخر تحديث: 2026-11-02 23:46 UTC — تشغيل رقم 41547788977
