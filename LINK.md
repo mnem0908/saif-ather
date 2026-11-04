@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://volumes-binding-presence-publications.trycloudflare.com
+الرابط الحالي المباشر: https://briefly-imports-ltd-supervisors.trycloudflare.com
 
-آخر تحديث: 2026-11-03 21:08 UTC — تشغيل رقم 41718764061
+آخر تحديث: 2026-11-04 02:29 UTC — تشغيل رقم 41760828057
