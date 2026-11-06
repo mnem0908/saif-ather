@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://stripes-facilities-airline-suse.trycloudflare.com
+الرابط الحالي المباشر: https://exciting-advisors-nick-correction.trycloudflare.com
 
-آخر تحديث: 2026-11-06 02:33 UTC — تشغيل رقم 42150924561
+آخر تحديث: 2026-11-06 07:53 UTC — تشغيل رقم 42183736696
