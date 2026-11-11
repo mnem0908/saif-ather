@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://households-considers-radical-profiles.trycloudflare.com
+الرابط الحالي المباشر: https://important-citizens-eat-shoot.trycloudflare.com
 
-آخر تحديث: 2026-11-10 18:47 UTC — تشغيل رقم 42878445540
+آخر تحديث: 2026-11-11 00:07 UTC — تشغيل رقم 42928675617
