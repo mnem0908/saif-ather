@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://sentences-taxes-safely-irrigation.trycloudflare.com
+الرابط الحالي المباشر: https://fighter-hopkins-royalty-dana.trycloudflare.com
 
-آخر تحديث: 2026-11-14 19:08 UTC — تشغيل رقم 43630320211
+آخر تحديث: 2026-11-15 00:37 UTC — تشغيل رقم 43658243431
