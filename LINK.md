@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://helps-canal-run-function.trycloudflare.com
+الرابط الحالي المباشر: https://satisfactory-endangered-syndicate-concerned.trycloudflare.com
 
-آخر تحديث: 2026-11-16 09:25 UTC — تشغيل رقم 43839354574
+آخر تحديث: 2026-11-16 16:31 UTC — تشغيل رقم 43908075799
