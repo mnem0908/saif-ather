@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://supposed-tables-jewish-regular.trycloudflare.com
+الرابط الحالي المباشر: https://thanksgiving-corrections-kid-maximize.trycloudflare.com
 
-آخر تحديث: 2026-11-17 13:40 UTC — تشغيل رقم 44094879055
+آخر تحديث: 2026-11-17 19:01 UTC — تشغيل رقم 44153760899
