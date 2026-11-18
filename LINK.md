@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://favorite-differential-wrapping-tough.trycloudflare.com
+الرابط الحالي المباشر: https://psi-cost-casting-fathers.trycloudflare.com
 
-آخر تحديث: 2026-11-18 06:04 UTC — تشغيل رقم 44248521532
+آخر تحديث: 2026-11-18 11:25 UTC — تشغيل رقم 44294308622
