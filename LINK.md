@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://norfolk-cook-generate-barry.trycloudflare.com
+الرابط الحالي المباشر: https://rotary-badly-mall-gym.trycloudflare.com
 
-آخر تحديث: 2026-11-19 13:07 UTC — تشغيل رقم 44528825987
+آخر تحديث: 2026-11-19 18:50 UTC — تشغيل رقم 44590089182
