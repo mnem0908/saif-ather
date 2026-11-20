@@ -2,6 +2,6 @@
 
 الرابط الدائم: **https://mnem0908.github.io/saif-ather/** (يحوّلك تلقائياً إلى الرابط الحالي)
 
-الرابط الحالي المباشر: https://allows-mac-sympathy-corpus.trycloudflare.com
+الرابط الحالي المباشر: https://dts-antonio-tower-relevance.trycloudflare.com
 
-آخر تحديث: 2026-11-20 15:59 UTC — تشغيل رقم 44768336343
+آخر تحديث: 2026-11-20 21:29 UTC — تشغيل رقم 44818954464
